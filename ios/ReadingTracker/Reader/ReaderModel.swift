@@ -18,26 +18,41 @@ final class ReaderModel: ObservableObject {
     /// Toolbars start hidden so the book opens full-screen, like Apple Books and Kindle.
     @Published var chromeVisible = false
 
+    @Published var settings: ReaderSettings {
+        didSet {
+            guard settings != oldValue else { return }
+            ReaderSettingsStore.save(settings)
+            applySettings()
+        }
+    }
+    /// Whether the system is in dark mode, for the "Auto" theme.
+    @Published private(set) var systemDark = false
+
     let book: Book
     private let environment: AppEnvironment
-    private var publication: Publication?
-    private weak var epubNavigator: EPUBNavigatorViewController?
-    /// Follows the system's light or dark appearance (full themes come later).
-    private var darkMode = false
+    private(set) var publication: Publication?
+    private(set) var navigator: (VisualNavigator & UIViewController)?
 
     init(book: Book, environment: AppEnvironment) {
         self.book = book
         self.environment = environment
+        settings = ReaderSettingsStore.load()
     }
 
-    func setDarkMode(_ dark: Bool) {
-        guard dark != darkMode else { return }
-        darkMode = dark
-        epubNavigator?.submitPreferences(epubPreferences)
+    var palette: ReaderSettings.Palette { settings.palette(systemDark: systemDark) }
+
+    func setSystemDark(_ dark: Bool) {
+        guard dark != systemDark else { return }
+        systemDark = dark
+        applySettings()
     }
 
-    private var epubPreferences: EPUBPreferences {
-        EPUBPreferences(theme: darkMode ? .dark : .light)
+    private func applySettings() {
+        if let epub = navigator as? EPUBNavigatorViewController {
+            epub.submitPreferences(settings.epubPreferences(systemDark: systemDark))
+        } else if let pdf = navigator as? PDFNavigatorViewController {
+            pdf.submitPreferences(settings.pdfPreferences(systemDark: systemDark))
+        }
     }
 
     func load() async {
@@ -57,20 +72,22 @@ final class ReaderModel: ObservableObject {
                 navigator = try PDFNavigatorViewController(
                     publication: publication,
                     initialLocation: initialLocation,
+                    config: .init(preferences: settings.pdfPreferences(systemDark: systemDark)),
                     delegate: self
                 )
             } else {
                 let epub = try EPUBNavigatorViewController(
                     publication: publication,
                     initialLocation: initialLocation,
-                    config: .init(preferences: epubPreferences)
+                    config: .init(preferences: settings.epubPreferences(systemDark: systemDark))
                 )
                 epub.delegate = self
-                epubNavigator = epub
                 navigator = epub
             }
+            self.navigator = navigator
             state = .ready(ReaderHostViewController(
                 navigator: navigator,
+                isScrolling: { [weak self] in self?.settings.scroll ?? false },
                 onTapCenter: { [weak self] in self?.chromeVisible.toggle() },
                 // Like a Kindle, turning the page tucks the toolbars away.
                 onPageTurn: { [weak self] in self?.chromeVisible = false }

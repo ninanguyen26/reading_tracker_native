@@ -7,6 +7,8 @@ final class ReaderHostViewController: UIViewController, UIGestureRecognizerDeleg
     enum TapZone { case left, middle, right }
 
     let navigator: VisualNavigator & UIViewController
+    /// In scroll mode taps don't turn pages; they only show or hide the toolbars.
+    private let isScrolling: () -> Bool
     private let onTapCenter: () -> Void
     private let onPageTurn: () -> Void
     /// Must be kept alive, or the navigator stops responding to edge taps.
@@ -14,10 +16,12 @@ final class ReaderHostViewController: UIViewController, UIGestureRecognizerDeleg
 
     init(
         navigator: VisualNavigator & UIViewController,
+        isScrolling: @escaping () -> Bool,
         onTapCenter: @escaping () -> Void,
         onPageTurn: @escaping () -> Void
     ) {
         self.navigator = navigator
+        self.isScrolling = isScrolling
         self.onTapCenter = onTapCenter
         self.onPageTurn = onPageTurn
         super.init(nibName: nil, bundle: nil)
@@ -84,6 +88,7 @@ final class ReaderHostViewController: UIViewController, UIGestureRecognizerDeleg
 
     @objc private func handlePDFTap(_ gesture: UITapGestureRecognizer) {
         let point = gesture.location(in: navigator.view)
+        if isScrolling() { return onTapCenter() }
         switch Self.zone(for: point.x, width: navigator.view.bounds.width) {
         case .left:
             Task { if await navigator.goLeft(options: .animated) { onPageTurn() } }

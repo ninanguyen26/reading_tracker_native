@@ -16,9 +16,12 @@ final class AppEnvironment: ObservableObject {
     static func live() -> AppEnvironment {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         #if DEBUG
-        // UI tests start from an empty library.
+        // UI tests start from an empty library with default settings.
         if ProcessInfo.processInfo.arguments.contains("-reset-library") {
             try? FileManager.default.removeItem(at: support)
+            if let bundleID = Bundle.main.bundleIdentifier {
+                UserDefaults.standard.removePersistentDomain(forName: bundleID)
+            }
         }
         #endif
         do {

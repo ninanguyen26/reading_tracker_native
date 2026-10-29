@@ -95,6 +95,57 @@ final class ReaderUITests: XCTestCase {
         waitForProgress(in: app, matching: "Page 1 of 6 · 0%")
     }
 
+    func testReadingSettingsApplyAndPersist() {
+        var app = launch(fresh: true)
+        XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 15))
+        book(epubTitle, in: app).tap()
+        waitForProgress(in: app, matching: "Location 1 of .*")
+        showToolbar(in: app)
+        app.buttons["Reading Settings"].tap()
+
+        app.buttons["Sepia theme"].tap()
+        XCTAssertTrue(app.buttons["Sepia theme"].isSelected)
+        app.buttons["Larger Text"].tap()
+        XCTAssertEqual(app.staticTexts["font-size"].label, "110%")
+        revealInSheet(app.buttons["Scroll"], in: app)
+        app.buttons["Scroll"].tap()
+        app.buttons["Done"].tap()
+
+        // In scroll mode, swiping up moves through the book.
+        let before = progress(in: app).label
+        app.otherElements["reader-content"].swipeUp()
+        app.otherElements["reader-content"].swipeUp()
+        let moved = NSPredicate(format: "label != %@", before)
+        wait(for: [expectation(for: moved, evaluatedWith: progress(in: app))], timeout: 10)
+
+        // Settings are kept after quitting.
+        app.terminate()
+        app = launch(fresh: false)
+        XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 15))
+        book(epubTitle, in: app).tap()
+        waitForProgress(in: app, matching: "Location .*")
+        showToolbar(in: app)
+        app.buttons["Reading Settings"].tap()
+        XCTAssertTrue(app.buttons["Sepia theme"].isSelected)
+        XCTAssertEqual(app.staticTexts["font-size"].label, "110%")
+        revealInSheet(app.buttons["Scroll"], in: app)
+        XCTAssertTrue(app.buttons["Scroll"].isSelected)
+    }
+
+    /// The settings sheet opens at half height; scroll it until the control is reachable.
+    private func revealInSheet(_ element: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<4 where !element.isHittable {
+            app.collectionViews.firstMatch.swipeUp()
+        }
+        XCTAssertTrue(element.isHittable)
+    }
+
+    private func showToolbar(in app: XCUIApplication) {
+        guard !app.buttons["Reading Settings"].exists else { return }
+        app.otherElements["reader-content"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(app.buttons["Reading Settings"].waitForExistence(timeout: 5))
+    }
+
     func testTappingTheMiddleTogglesTheToolbar() {
         let app = launch(fresh: true)
         XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 15))
