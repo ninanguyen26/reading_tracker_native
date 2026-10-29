@@ -1,0 +1,77 @@
+# Reading Tracker — native apps
+
+Native iPhone/iPad and Android versions of [Reading Tracker](https://github.com/ninanguyen26/reading_tracker), a Kindle-style reader for your own EPUB and PDF books. Books stay on the device.
+
+Both apps are built on the open-source [Readium](https://readium.org) toolkits, the same architecture as Apple Books: native screens around the book, with EPUB pages drawn by the system's web engine and PDFs by the platform's PDF engine.
+
+| | iOS / iPadOS | Android |
+| --- | --- | --- |
+| Folder | [`ios/`](ios) | `android/` (planned) |
+| Language / UI | Swift, SwiftUI | Kotlin, Jetpack Compose |
+| Reading engine | Readium Swift toolkit 3.11 | Readium Kotlin toolkit |
+| Storage | SQLite (GRDB) + files in Application Support | SQLite (Room) + app files |
+| Minimum OS | iOS 16 | Android 8 |
+
+## Status
+
+**Phase 1 — iOS foundation (done)**
+- Add books from Files (several at once) or with **Open in Reading Tracker** from Files, Mail, Safari or AirDrop
+- Native library: cover grid (adapts to iPhone and iPad), title and author read from the book, progress on each cover, search, sort (recently read, recently added, title, author), long-press to delete
+- Reader for EPUB (Readium navigator) and PDF (PDFKit): tap the left or right edge, swipe, or use arrow keys to turn pages; tap the middle to show or hide the toolbar
+- Opens where you left off, even after quitting the app
+- Footer with chapter, location or page, and percent
+- Follows the system light/dark appearance
+
+**Next**
+- Phase 2 — iOS reading features: contents, bookmarks, themes and fonts, scroll mode, search, highlights and notes, notes page, shelves, time left, backup and restore (compatible with the web app's backups), Look Up dictionary
+- Phase 3 — Android app with the same features
+- Phase 4 — App Store and Google Play preparation
+
+## iOS: building and running
+
+Requires Xcode 26 or newer.
+
+```bash
+open ios/ReadingTracker.xcodeproj
+```
+
+Choose an iPhone or iPad simulator and press Run. To try the app with the two sample books, edit the scheme's *Run → Arguments* and add `-reset-library` and `-import-samples` (debug builds only).
+
+The Xcode project is generated from [`ios/project.yml`](ios/project.yml) with [XcodeGen](https://github.com/yonaskolb/XcodeGen). After adding, removing or renaming files:
+
+```bash
+brew install xcodegen
+```
+
+```bash
+cd ios && xcodegen
+```
+
+### Tests
+
+```bash
+cd ios && xcodebuild test -project ReadingTracker.xcodeproj -scheme ReadingTracker -destination 'platform=iOS Simulator,name=iPhone 17'
+```
+
+- **Unit tests** (`ReadingTrackerTests`): importing EPUB and PDF files (metadata, covers, cleanup on failure, rejecting other files), deleting, saving progress, sorting and search, tap zones.
+- **UI tests** (`ReadingTrackerUITests`): the library lists imported books; reading an EPUB and resuming at the same place after quitting; turning PDF pages by tapping; showing and hiding the toolbar.
+
+### Layout
+
+```
+ios/
+  project.yml               XcodeGen project definition
+  ReadingTracker/
+    App/                    app entry point, shared services, Info.plist
+    Data/                   Book model, database, file storage, importer, Readium setup
+    Library/                library screen
+    Reader/                 reader screen and the Readium navigator host
+    Resources/              assets; DebugFixtures holds sample books for debug builds
+  ReadingTrackerTests/      unit tests and fixtures
+  ReadingTrackerUITests/    UI tests
+```
+
+## Notes
+
+- **PDF taps:** Readium's PDF navigator waits for PDFKit's own tap recognizers to fail before reporting a tap, which doesn't happen on recent iOS versions, so the app recognizes PDF taps itself ([`ReaderHostViewController`](ios/ReadingTracker/Reader/ReaderHostViewController.swift)).
+- **Positions:** EPUB "locations" come from Readium, which counts them from the book's compressed size, so short books have few locations; the percentage is always accurate.

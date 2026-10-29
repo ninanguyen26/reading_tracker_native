@@ -1,0 +1,89 @@
+# Source of truth for ReadingTracker.xcodeproj. After adding, removing or
+# renaming files, run `xcodegen` in this folder and commit the result.
+name: ReadingTracker
+options:
+  bundleIdPrefix: com.ninanguyen26
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+
+packages:
+  Readium:
+    url: https://github.com/readium/swift-toolkit.git
+    exactVersion: 3.11.0
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    exactVersion: 7.11.1
+
+targets:
+  ReadingTracker:
+    type: application
+    platform: iOS
+    sources:
+      - path: ReadingTracker
+        excludes:
+          - Resources/DebugFixtures
+      # A folder reference keeps the "DebugFixtures" folder intact in the bundle.
+      - path: ReadingTracker/Resources/DebugFixtures
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: Readium
+        product: ReadiumShared
+      - package: Readium
+        product: ReadiumStreamer
+      - package: Readium
+        product: ReadiumNavigator
+      - package: GRDB
+        product: GRDB
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ninanguyen26.readingtracker
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_FILE: ReadingTracker/App/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+      configs:
+        # Sample books used by UI tests ship in debug builds only.
+        Release:
+          EXCLUDED_SOURCE_FILE_NAMES: DebugFixtures
+
+  ReadingTrackerTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ReadingTrackerTests
+    dependencies:
+      - target: ReadingTracker
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+  ReadingTrackerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: ReadingTrackerUITests
+    dependencies:
+      - target: ReadingTracker
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  ReadingTracker:
+    build:
+      targets:
+        ReadingTracker: all
+    test:
+      targets:
+        - ReadingTrackerTests
+        - ReadingTrackerUITests

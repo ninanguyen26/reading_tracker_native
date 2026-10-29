@@ -1,0 +1,131 @@
+import Foundation
+import PDFKit
+import ReadiumShared
+import UIKit
+
+enum ImportError: LocalizedError, Equatable {
+    case unsupportedFile(String)
+    case copyFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedFile(let name): "“\(name)” isn’t an EPUB or PDF file."
+        case .copyFailed(let name): "“\(name)” couldn’t be copied into your library."
+        }
+    }
+}
+
+/// Adds book files to the library: copies the file in, reads its title,
+/// author and cover, and saves it to the database.
+@MainActor
+final class BookImporter {
+    private let database: AppDatabase
+    private let storage: BookStorage
+    private let readium: ReadiumServices
+
+    static let coverSize = CGSize(width: 600, height: 900)
+
+    init(database: AppDatabase, storage: BookStorage, readium: ReadiumServices = .shared) {
+        self.database = database
+        self.storage = storage
+        self.readium = readium
+    }
+
+    /// Imports a file from anywhere: the Files picker, "Open in…", or the app bundle.
+    @discardableResult
+    func importBook(from source: URL) async throws -> Book {
+        // Files from the picker or other apps are only readable inside this scope.
+        let scoped = source.startAccessingSecurityScopedResource()
+        defer { if scoped { source.stopAccessingSecurityScopedResource() } }
+
+        let name = source.lastPathComponent
+        guard let format = Self.detectFormat(of: source) else { throw ImportError.unsupportedFile(name) }
+
+        let id = UUID().uuidString
+        let fileName = "\(id).\(format.fileExtension)"
+        let destination = storage.url(for: fileName)
+        do {
+            try FileManager.default.copyItem(at: source, to: destination)
+        } catch {
+            throw ImportError.copyFailed(name)
+        }
+
+        var coverFileName: String?
+        do {
+            let publication = try await readium.openPublication(at: destination)
+            let metadata = publication.metadata
+            let cover = format == .pdf
+                ? Self.renderPDFCover(at: destination)
+                : try? await publication.coverFitting(maxSize: Self.coverSize).get()
+            if let data = cover?.jpegData(compressionQuality: 0.85) {
+                coverFileName = "\(id)-cover.jpg"
+                try data.write(to: storage.url(for: coverFileName!))
+            }
+            let book = Book(
+                id: id,
+                title: Self.clean(metadata.title) ?? Self.title(fromFileName: name),
+                author: Self.clean(metadata.authors.map(\.name).joined(separator: ", ")) ?? "Unknown author",
+                format: format,
+                fileName: fileName,
+                coverFileName: coverFileName,
+                size: Self.fileSize(of: destination),
+                addedAt: Date(),
+                lastOpenedAt: nil,
+                locator: nil,
+                progression: 0
+            )
+            try await database.insert(book)
+            return book
+        } catch {
+            // Don't leave half-imported files behind.
+            try? FileManager.default.removeItem(at: destination)
+            if let coverFileName { try? FileManager.default.removeItem(at: storage.url(for: coverFileName)) }
+            throw error
+        }
+    }
+
+    func delete(_ book: Book) async throws {
+        try await database.deleteBook(id: book.id)
+        storage.removeFiles(of: book)
+    }
+
+    // MARK: Helpers
+
+    /// Works out the format from the file's first bytes, falling back to its extension.
+    nonisolated static func detectFormat(of url: URL) -> BookFormat? {
+        if let handle = try? FileHandle(forReadingFrom: url) {
+            defer { try? handle.close() }
+            let head = (try? handle.read(upToCount: 4)) ?? Data()
+            if head.starts(with: [0x25, 0x50, 0x44, 0x46]) { return .pdf }  // %PDF
+            if head.starts(with: [0x50, 0x4B, 0x03, 0x04]) { return .epub } // PK.. (zip)
+        }
+        return BookFormat(rawValue: url.pathExtension.lowercased())
+    }
+
+    /// "my_great-book.epub" -> "my great book"
+    nonisolated static func title(fromFileName name: String) -> String {
+        let base = name
+            .replacingOccurrences(of: "\\.[^.]*$", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "[_-]+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+        return base.isEmpty ? "Untitled" : base
+    }
+
+    private nonisolated static func clean(_ text: String?) -> String? {
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private nonisolated static func fileSize(of url: URL) -> Int64 {
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? NSNumber
+        return size?.int64Value ?? 0
+    }
+
+    /// The first page of a PDF, as a cover image.
+    private static func renderPDFCover(at url: URL) -> UIImage? {
+        guard let page = PDFDocument(url: url)?.page(at: 0) else { return nil }
+        let bounds = page.bounds(for: .mediaBox)
+        let scale = coverSize.width / max(bounds.width, 1)
+        return page.thumbnail(of: CGSize(width: bounds.width * scale, height: bounds.height * scale), for: .mediaBox)
+    }
+}
