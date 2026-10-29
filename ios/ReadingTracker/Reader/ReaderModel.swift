@@ -25,6 +25,8 @@ final class ReaderModel: ObservableObject {
             applySettings()
         }
     }
+    @Published private(set) var tableOfContents: [Link] = []
+    @Published private(set) var bookmarks: [Bookmark] = []
     /// Whether the system is in dark mode, for the "Auto" theme.
     @Published private(set) var systemDark = false
 
@@ -32,6 +34,7 @@ final class ReaderModel: ObservableObject {
     private let environment: AppEnvironment
     private(set) var publication: Publication?
     private(set) var navigator: (VisualNavigator & UIViewController)?
+    private var bookmarkObservation: Task<Void, Never>?
 
     init(book: Book, environment: AppEnvironment) {
         self.book = book
@@ -93,16 +96,96 @@ final class ReaderModel: ObservableObject {
                 onPageTurn: { [weak self] in self?.chromeVisible = false }
             ))
             locator = initialLocation
+            observeBookmarks()
             try? await environment.database.markOpened(id: book.id)
+            tableOfContents = (try? await publication.tableOfContents().get()) ?? []
             positionCount = try? await publication.positions().get().count
         } catch {
             state = .failed(error.localizedDescription)
         }
     }
 
+    deinit { bookmarkObservation?.cancel() }
+
+    // MARK: Navigation
+
+    func go(to link: Link) {
+        Task { _ = await navigator?.go(to: link, options: .animated) }
+    }
+
+    func go(to bookmark: Bookmark) {
+        guard let locator = try? Locator(jsonString: bookmark.locator) else { return }
+        Task { _ = await navigator?.go(to: locator, options: .animated) }
+    }
+
+    /// Jumps to a point (0…1) through the whole book, e.g. from the slider.
+    func go(toProgression progression: Double) {
+        Task {
+            guard let target = await publication?.locate(progression: progression) else { return }
+            _ = await navigator?.go(to: target, options: .animated)
+        }
+    }
+
+    /// The table of contents entry for the current chapter, to highlight it in the list.
+    var currentChapterHref: String? {
+        locator.map { $0.href.string }
+    }
+
+    // MARK: Bookmarks
+
+    private func observeBookmarks() {
+        let observation = environment.database.observeBookmarks(bookId: book.id)
+        bookmarkObservation = Task { [weak self] in
+            do {
+                for try await bookmarks in observation { self?.bookmarks = bookmarks }
+            } catch {}
+        }
+    }
+
+    /// The bookmark on the page being read, if any.
+    var currentBookmark: Bookmark? {
+        guard let locator else { return nil }
+        return bookmarks.first { bookmark in
+            guard let saved = try? Locator(jsonString: bookmark.locator) else { return false }
+            return Self.isSamePlace(saved, locator)
+        }
+    }
+
+    /// Bookmarks match the page they were made on, not just the exact same character.
+    nonisolated static func isSamePlace(_ a: Locator, _ b: Locator) -> Bool {
+        guard a.href == b.href else { return false }
+        if let pa = a.locations.progression, let pb = b.locations.progression {
+            return abs(pa - pb) < 0.001
+        }
+        return a.locations.position == b.locations.position
+    }
+
+    func toggleBookmark() {
+        if let existing = currentBookmark {
+            Task { try? await environment.database.deleteBookmark(id: existing.id) }
+            return
+        }
+        guard let locator, let json = try? locator.jsonString() else { return }
+        let bookmark = Bookmark(
+            id: UUID().uuidString,
+            bookId: book.id,
+            locator: json,
+            progression: locator.locations.totalProgression ?? 0,
+            title: locator.title,
+            createdAt: Date()
+        )
+        Task { try? await environment.database.addBookmark(bookmark) }
+    }
+
+    func deleteBookmark(_ bookmark: Bookmark) {
+        Task { try? await environment.database.deleteBookmark(id: bookmark.id) }
+    }
+
     // MARK: Footer
 
     var chapterTitle: String? { locator?.title }
+
+    var progression: Double { locator?.locations.totalProgression ?? 0 }
 
     var progressLabel: String {
         guard let locator else { return "" }

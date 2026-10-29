@@ -27,6 +27,17 @@ final class AppDatabase: Sendable {
                 t.column("progression", .double).notNull().defaults(to: 0)
             }
         }
+        migrator.registerMigration("v2-bookmarks") { db in
+            try db.create(table: "bookmark") { t in
+                t.primaryKey("id", .text)
+                t.column("bookId", .text).notNull().indexed()
+                    .references("book", onDelete: .cascade)
+                t.column("locator", .text).notNull()
+                t.column("progression", .double).notNull()
+                t.column("title", .text)
+                t.column("createdAt", .datetime).notNull()
+            }
+        }
         return migrator
     }
 
@@ -72,6 +83,28 @@ final class AppDatabase: Sendable {
                 arguments: [locator, min(max(progression, 0), 1), id]
             )
         }
+    }
+
+    // MARK: Bookmarks
+
+    func addBookmark(_ bookmark: Bookmark) async throws {
+        try await writer.write { try bookmark.insert($0) }
+    }
+
+    func deleteBookmark(id: String) async throws {
+        _ = try await writer.write { try Bookmark.deleteOne($0, key: id) }
+    }
+
+    /// A book's bookmarks in reading order, now and whenever they change.
+    func observeBookmarks(bookId: String) -> AsyncValueObservation<[Bookmark]> {
+        ValueObservation
+            .tracking { db in
+                try Bookmark
+                    .filter(Column("bookId") == bookId)
+                    .order(Column("progression"), Column("createdAt"))
+                    .fetchAll(db)
+            }
+            .values(in: writer)
     }
 
     /// Emits the full list of books now and whenever it changes.

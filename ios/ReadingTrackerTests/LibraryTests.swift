@@ -1,3 +1,4 @@
+import ReadiumShared
 import XCTest
 @testable import ReadingTracker
 
@@ -112,6 +113,30 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(BookImporter.detectFormat(of: unknown), .epub)
         XCTAssertEqual(BookImporter.title(fromFileName: "my_great-book.epub"), "my great book")
         XCTAssertEqual(BookImporter.title(fromFileName: ".pdf"), "Untitled")
+    }
+
+    func testBookmarksAreOrderedAndDeletedWithTheirBook() async throws {
+        let book = try await importer.importBook(from: fixture("sample", "epub"))
+        for (id, progression) in [("late", 0.8), ("early", 0.2)] {
+            try await database.addBookmark(Bookmark(id: id, bookId: book.id, locator: "{}", progression: progression, title: nil, createdAt: Date()))
+        }
+        var iterator = database.observeBookmarks(bookId: book.id).makeAsyncIterator()
+        let ordered = try await iterator.next()
+        XCTAssertEqual(ordered?.map(\.id), ["early", "late"])
+
+        try await importer.delete(book)
+        let count = try await database.writer.read { try Bookmark.fetchCount($0) }
+        XCTAssertEqual(count, 0)
+    }
+
+    func testBookmarkMatchesThePageItWasMadeOn() throws {
+        func locator(_ href: String, progression: Double?, position: Int? = nil) throws -> Locator {
+            try XCTUnwrap(Locator(jsonString: #"{"href":"\#(href)","type":"text/html","locations":{\#(progression.map { "\"progression\":\($0)," } ?? "")"position":\#(position ?? 1)}}"#))
+        }
+        XCTAssertTrue(ReaderModel.isSamePlace(try locator("ch1.xhtml", progression: 0.25), try locator("ch1.xhtml", progression: 0.2504)))
+        XCTAssertFalse(ReaderModel.isSamePlace(try locator("ch1.xhtml", progression: 0.25), try locator("ch1.xhtml", progression: 0.3)))
+        XCTAssertFalse(ReaderModel.isSamePlace(try locator("ch1.xhtml", progression: 0.25), try locator("ch2.xhtml", progression: 0.25)))
+        XCTAssertTrue(ReaderModel.isSamePlace(try locator("doc.pdf", progression: nil, position: 3), try locator("doc.pdf", progression: nil, position: 3)))
     }
 
     func testTapZones() {
