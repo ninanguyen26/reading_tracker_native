@@ -5,6 +5,7 @@ struct LibraryView: View {
     @ObservedObject var model: LibraryModel
     @State private var showingImporter = false
     @State private var bookToDelete: Book?
+    @State private var bookToInspect: Book?
     // Navigate by ID: a Book value changes as soon as it's opened (progress,
     // last-opened date), which SwiftUI would treat as a different destination.
     @State private var path: [String] = []
@@ -31,12 +32,18 @@ struct LibraryView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .contextMenu {
+                                    Button {
+                                        bookToInspect = book
+                                    } label: {
+                                        Label("Book Details", systemImage: "info.circle")
+                                    }
                                     Button(role: .destructive) {
                                         bookToDelete = book
                                     } label: {
                                         Label("Delete Book", systemImage: "trash")
                                     }
                                 }
+                                .accessibilityAction(named: "Book Details") { bookToInspect = book }
                             }
                         }
                         .padding(.horizontal)
@@ -76,6 +83,11 @@ struct LibraryView: View {
                 switch result {
                 case .success(let urls): model.importFiles(urls)
                 case .failure(let error): model.errorMessage = error.localizedDescription
+                }
+            }
+            .sheet(item: $bookToInspect) { book in
+                BookDetailsScreen(book: book, coverURL: model.coverURL(for: book)) {
+                    path.append(book.id)
                 }
             }
             .confirmationDialog(

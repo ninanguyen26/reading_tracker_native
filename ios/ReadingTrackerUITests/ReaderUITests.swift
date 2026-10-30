@@ -56,6 +56,54 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(book(epubTitle, in: app).label.contains("New"))
     }
 
+    func testBookDetailsShowsAvailableEpubMetadataAndOpensReader() {
+        let app = launch(fresh: true)
+        XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 15))
+        book(epubTitle, in: app).press(forDuration: 1)
+        app.buttons["Book Details"].tap()
+        XCTAssertTrue(app.navigationBars["Book Details"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["details-description"].label, "A keeper watches over an isolated island.")
+        captureDetails("EPUB Book Details", in: app)
+        app.scrollViews.firstMatch.swipeUp()
+        XCTAssertTrue(app.staticTexts["Series"].exists)
+        XCTAssertTrue(app.staticTexts["Island Stories · Book 2.5"].exists)
+        XCTAssertTrue(app.staticTexts["Coastal Tales"].exists)
+        XCTAssertTrue(app.staticTexts["Fiction · Sea stories"].exists)
+        XCTAssertTrue(app.staticTexts["Languages"].exists)
+        captureDetails("EPUB Metadata", in: app)
+        app.scrollViews.firstMatch.swipeDown()
+        app.buttons["Read Book"].tap()
+        waitForProgress(in: app, matching: "Location 1 of .*")
+    }
+
+    func testPDFDetailsHidesMissingFieldsAndCanBeOpenedFromReader() {
+        let app = launch(fresh: true)
+        XCTAssertTrue(book(pdfTitle, in: app).waitForExistence(timeout: 15))
+        book(pdfTitle, in: app).press(forDuration: 1)
+        app.buttons["Book Details"].tap()
+        XCTAssertTrue(app.navigationBars["Book Details"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts[pdfTitle].exists)
+        XCTAssertTrue(app.staticTexts["PDF"].exists)
+        for heading in ["Description", "Series", "Subjects", "Language", "Languages"] {
+            XCTAssertFalse(app.staticTexts[heading].exists)
+        }
+        captureDetails("PDF Book Details", in: app)
+        app.buttons["Read Book"].tap()
+        waitForProgress(in: app, matching: "Page 1 of 6 · 0%")
+        showToolbar(in: app)
+        app.buttons["Book Details"].tap()
+        XCTAssertTrue(app.navigationBars["Book Details"].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap()
+        XCTAssertTrue(progress(in: app).exists)
+    }
+
+    private func captureDetails(_ name: String, in app: XCUIApplication) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testReadsAnEpubAndRemembersThePosition() {
         var app = launch(fresh: true)
         XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 15))

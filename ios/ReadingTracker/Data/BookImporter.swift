@@ -16,7 +16,7 @@ enum ImportError: LocalizedError, Equatable {
 }
 
 /// Adds book files to the library: copies the file in, reads its title,
-/// author and cover, and saves it to the database.
+/// author and cover, preserves optional embedded metadata, and saves it to the database.
 @MainActor
 final class BookImporter {
     private let database: AppDatabase
@@ -54,6 +54,7 @@ final class BookImporter {
         do {
             let publication = try await readium.openPublication(at: destination)
             let metadata = publication.metadata
+            let pdfMetadata = format == .pdf ? PDFBookMetadata(url: destination) : nil
             let cover = format == .pdf
                 ? Self.renderPDFCover(at: destination)
                 : try? await publication.coverFitting(maxSize: Self.coverSize).get()
@@ -68,6 +69,13 @@ final class BookImporter {
                 format: format,
                 fileName: fileName,
                 coverFileName: coverFileName,
+                description: pdfMetadata?.description ?? Self.clean(metadata.description),
+                series: format == .epub ? (metadata.belongsTo["series"] ?? []).compactMap {
+                    guard let name = Self.clean($0.name) else { return nil }
+                    return BookSeries(name: name, position: $0.position)
+                } : pdfMetadata?.series ?? [],
+                subjects: pdfMetadata?.subjects ?? metadata.subjects.compactMap { Self.clean($0.name) },
+                languages: pdfMetadata?.languages ?? metadata.languages.compactMap { Self.clean($0) },
                 size: Self.fileSize(of: destination),
                 addedAt: Date(),
                 lastOpenedAt: nil,

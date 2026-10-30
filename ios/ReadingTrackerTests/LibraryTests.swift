@@ -1,4 +1,5 @@
 import ReadiumShared
+import GRDB
 import XCTest
 @testable import ReadingTracker
 
@@ -29,11 +30,28 @@ final class LibraryTests: XCTestCase {
 
     // MARK: Import
 
+    func testBookDetailsDescriptionDisplaysTextWithoutMarkup() {
+        let text = BookDetailsText.description("<p>A journey &amp; a discovery.</p><p>Second paragraph.</p><img src='https://example.org/cover.jpg'><script>hidden()</script>")
+        XCTAssertTrue(text?.contains("A journey & a discovery.") == true)
+        XCTAssertTrue(text?.contains("Second paragraph.") == true)
+        XCTAssertFalse(text?.contains("<") == true)
+        XCTAssertFalse(text?.contains("hidden()") == true)
+        XCTAssertNil(BookDetailsText.description("<p>  </p>"))
+        XCTAssertNil(BookDetailsText.description(nil))
+    }
+
     func testImportsEpubWithMetadataAndCover() async throws {
         let book = try await importer.importBook(from: fixture("sample", "epub"))
         XCTAssertEqual(book.title, "The Lighthouse Keeper")
         XCTAssertEqual(book.author, "Avery Quinn")
         XCTAssertEqual(book.format, .epub)
+        XCTAssertEqual(book.description, "A keeper watches over an isolated island.")
+        XCTAssertEqual(book.series, [
+            BookSeries(name: "Island Stories", position: 2.5),
+            BookSeries(name: "Coastal Tales", position: nil)
+        ])
+        XCTAssertEqual(book.subjects, ["Fiction", "Sea stories"])
+        XCTAssertEqual(book.languages, ["en", "vi"])
         XCTAssertGreaterThan(book.size, 0)
         XCTAssertEqual(book.progression, 0)
         XCTAssertNotNil(book.coverFileName)
@@ -41,6 +59,10 @@ final class LibraryTests: XCTestCase {
         XCTAssertNotNil(UIImage(contentsOfFile: storage.url(for: book.coverFileName!).path))
         let saved = try await database.allBooks()
         XCTAssertEqual(saved.map(\.id), [book.id])
+        XCTAssertEqual(saved[0].description, book.description)
+        XCTAssertEqual(saved[0].series, book.series)
+        XCTAssertEqual(saved[0].subjects, book.subjects)
+        XCTAssertEqual(saved[0].languages, book.languages)
         // SQLite keeps dates to the millisecond.
         XCTAssertEqual(saved[0].addedAt.timeIntervalSince1970, book.addedAt.timeIntervalSince1970, accuracy: 0.001)
     }
@@ -50,6 +72,10 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(book.title, "Field Notes")
         XCTAssertEqual(book.author, "Jordan Lee")
         XCTAssertEqual(book.format, .pdf)
+        XCTAssertNil(book.description)
+        XCTAssertTrue(book.series.isEmpty)
+        XCTAssertTrue(book.subjects.isEmpty)
+        XCTAssertTrue(book.languages.isEmpty)
         let cover = try XCTUnwrap(UIImage(contentsOfFile: storage.url(for: XCTUnwrap(book.coverFileName)).path))
         // US Letter proportions, from rendering page 1.
         XCTAssertEqual(cover.size.height / cover.size.width, 792.0 / 612.0, accuracy: 0.02)
@@ -67,6 +93,103 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(try filesInStorage(), [])
         let saved = try await database.allBooks()
         XCTAssertTrue(saved.isEmpty)
+    }
+
+    func testImportsPDFXMPMetadataAndStoresIt() async throws {
+        let source = try metadataPDF(xmp: """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/">
+            <r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <r:Description xmlns:d="http://purl.org/dc/elements/1.1/"
+                xmlns:c="http://calibre-ebook.com/xmp-namespace"
+                xmlns:s="http://calibre-ebook.com/xmp-namespace-series-index">
+                <d:description><r:Alt>
+                    <r:li xml:lang="vi">Other translation</r:li>
+                    <r:li xml:lang="x-default">  A journey &amp; a discovery.  </r:li>
+                </r:Alt></d:description>
+                <d:subject><r:Bag><r:li>Travel</r:li><r:li>  Islands </r:li><r:li>travel</r:li><r:li> </r:li></r:Bag></d:subject>
+                <d:language><r:Bag><r:li>en-GB</r:li><r:li>vi</r:li></r:Bag></d:language>
+                <c:series><r:Description><r:value>Island Stories</r:value><s:series_index>2.5</s:series_index></r:Description></c:series>
+                <c:series><r:Description><r:value>Coastal Tales</r:value><s:series_index>NaN</s:series_index></r:Description></c:series>
+            </r:Description></r:RDF></x:xmpmeta>
+            """, info: "/Subject (Older description) /Keywords (Old topic)", language: "fr")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let book = try await importer.importBook(from: source)
+        XCTAssertEqual(book.description, "A journey & a discovery.")
+        XCTAssertEqual(book.series, [BookSeries(name: "Island Stories", position: 2.5), BookSeries(name: "Coastal Tales", position: nil)])
+        XCTAssertEqual(book.subjects, ["Travel", "Islands"])
+        XCTAssertEqual(book.languages, ["en-GB", "vi"])
+        XCTAssertNotNil(book.coverFileName)
+        let fetched = try await database.book(id: book.id)
+        let saved = try XCTUnwrap(fetched)
+        XCTAssertEqual(saved.description, book.description)
+        XCTAssertEqual(saved.series, book.series)
+        XCTAssertEqual(saved.subjects, book.subjects)
+        XCTAssertEqual(saved.languages, book.languages)
+    }
+
+    func testImportsPDFDocumentPropertiesWithoutXMP() async throws {
+        let source = try metadataPDF(info: "/Subject (  Notes about coastal life.  ) /Keywords (Travel; Islands, travel)", language: "vi")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let book = try await importer.importBook(from: source)
+        XCTAssertEqual(book.description, "Notes about coastal life.")
+        XCTAssertEqual(book.subjects, ["Travel", "Islands"])
+        XCTAssertEqual(book.languages, ["vi"])
+        XCTAssertTrue(book.series.isEmpty)
+    }
+
+    func testMalformedPDFXMPFallsBackToDocumentProperties() async throws {
+        let source = try metadataPDF(xmp: "<broken><description>Partial value", info: "/Subject (Fallback) /Keywords (History)", language: "en")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let book = try await importer.importBook(from: source)
+        XCTAssertEqual(book.description, "Fallback")
+        XCTAssertEqual(book.subjects, ["History"])
+        XCTAssertEqual(book.languages, ["en"])
+    }
+
+    func testPDFCompactXMPAndUnknownNamespaces() async throws {
+        let source = try metadataPDF(xmp: """
+            <r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <r:Description xmlns:d="http://purl.org/dc/elements/1.1/"
+                xmlns:p="http://ns.adobe.com/pdf/1.3/"
+                xmlns:other="https://example.org/unrelated/"
+                d:description="Short description" d:language="en" p:Keywords="Fiction; Sea stories">
+                <other:series>Not a recognized series field</other:series>
+                <other:subject>Not a subject</other:subject>
+            </r:Description></r:RDF>
+            """)
+        defer { try? FileManager.default.removeItem(at: source) }
+        let book = try await importer.importBook(from: source)
+        XCTAssertEqual(book.description, "Short description")
+        XCTAssertEqual(book.subjects, ["Fiction", "Sea stories"])
+        XCTAssertEqual(book.languages, ["en"])
+        XCTAssertTrue(book.series.isEmpty)
+    }
+
+    /// A real, minimal PDF with optional Info, catalog language, and XMP stream.
+    private func metadataPDF(xmp: String? = nil, info: String = "", language: String? = nil) throws -> URL {
+        let languageEntry = language.map { "/Lang (\($0))" } ?? ""
+        var objects = [
+            "<< /Type /Catalog /Pages 2 0 R \(languageEntry) \(xmp == nil ? "" : "/Metadata 5 0 R") >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+            "<< /Title (Metadata Test) /Author (Test Author) \(info) >>"
+        ]
+        if let xmp {
+            objects.append("<< /Type /Metadata /Subtype /XML /Length \(xmp.utf8.count) >>\nstream\n\(xmp)\nendstream")
+        }
+        var data = Data("%PDF-1.7\n".utf8)
+        var offsets = [Int]()
+        for (index, object) in objects.enumerated() {
+            offsets.append(data.count)
+            data.append(Data("\(index + 1) 0 obj\n\(object)\nendobj\n".utf8))
+        }
+        let xref = data.count
+        data.append(Data("xref\n0 \(objects.count + 1)\n0000000000 65535 f \n".utf8))
+        for offset in offsets { data.append(Data(String(format: "%010d 00000 n \n", offset).utf8)) }
+        data.append(Data("trailer\n<< /Size \(objects.count + 1) /Root 1 0 R /Info 4 0 R >>\nstartxref\n\(xref)\n%%EOF\n".utf8))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).pdf")
+        try data.write(to: url)
+        return url
     }
 
     func testCleansUpWhenABookCannotBeOpened() async throws {
@@ -89,6 +212,51 @@ final class LibraryTests: XCTestCase {
     }
 
     // MARK: Progress
+
+    func testImportsEpubWithoutOptionalMetadata() async throws {
+        // This fixture has only title, author and language.
+        let source = try fixture("minimal", "epub")
+        let book = try await importer.importBook(from: source)
+        XCTAssertNil(book.description)
+        XCTAssertTrue(book.series.isEmpty)
+        XCTAssertTrue(book.subjects.isEmpty)
+        XCTAssertEqual(book.languages, ["en"])
+        let fetched = try await database.book(id: book.id)
+        let saved = try XCTUnwrap(fetched)
+        XCTAssertEqual(saved.series, [])
+        XCTAssertEqual(saved.subjects, [])
+    }
+
+    func testMetadataMigrationPreservesExistingBooksAndProgress() async throws {
+        let queue = try DatabaseQueue()
+        try await queue.write { db in
+            // Simulate an existing v1 library before the new columns existed.
+            try db.execute(sql: """
+                CREATE TABLE grdb_migrations (identifier TEXT NOT NULL PRIMARY KEY);
+                INSERT INTO grdb_migrations VALUES ('v1');
+                CREATE TABLE book (
+                    id TEXT PRIMARY KEY, title TEXT NOT NULL, author TEXT NOT NULL,
+                    format TEXT NOT NULL, fileName TEXT NOT NULL, coverFileName TEXT,
+                    size INTEGER NOT NULL, addedAt DATETIME NOT NULL,
+                    lastOpenedAt DATETIME, locator TEXT, progression DOUBLE NOT NULL DEFAULT 0
+                );
+                INSERT INTO book VALUES (
+                    'legacy', 'Existing Book', 'Author', 'epub', 'legacy.epub', NULL,
+                    100, '2026-01-01 00:00:00', NULL, '{"href":"chapter.xhtml"}', 0.42
+                );
+                """)
+        }
+        let migrated = try AppDatabase(queue)
+        let fetched = try await migrated.book(id: "legacy")
+        let book = try XCTUnwrap(fetched)
+        XCTAssertEqual(book.title, "Existing Book")
+        XCTAssertEqual(book.progression, 0.42)
+        XCTAssertEqual(book.locator, #"{"href":"chapter.xhtml"}"#)
+        XCTAssertNil(book.description)
+        XCTAssertEqual(book.series, [])
+        XCTAssertEqual(book.subjects, [])
+        XCTAssertEqual(book.languages, [])
+    }
 
     func testSavesProgressAndLastOpened() async throws {
         let book = try await importer.importBook(from: fixture("sample", "pdf"))

@@ -17,6 +17,7 @@ Both apps are built on the open-source [Readium](https://readium.org) toolkits, 
 **Phase 1 — iOS foundation (done)**
 - Add books from Files (several at once) or with **Open in Reading Tracker** from Files, Mail, Safari or AirDrop
 - Native library: cover grid (adapts to iPhone and iPad), title and author read from the book, progress on each cover, search, sort (recently read, recently added, title, author), long-press to delete
+- New imports also store embedded descriptions, series names and positions, subjects, and language tags when present. EPUBs use their publication metadata. PDFs use XMP Dublin Core fields, Calibre XMP series metadata, and fallback document Subject, Keywords, and catalog language. Long-press a library book and choose **Book Details**, or tap the reader's Info button, to see available metadata. Empty fields are hidden. Existing library entries receive empty defaults; their files are not rescanned.
 - Reader for EPUB (Readium navigator) and PDF (PDFKit): tap the left or right edge, swipe, or use arrow keys to turn pages; tap the middle to show or hide the toolbar
 - Opens where you left off, even after quitting the app
 - Footer with chapter, location or page, and percent

@@ -38,6 +38,14 @@ final class AppDatabase: Sendable {
                 t.column("createdAt", .datetime).notNull()
             }
         }
+        migrator.registerMigration("v3-embedded-metadata") { db in
+            try db.alter(table: "book") { t in
+                t.add(column: "description", .text)
+                t.add(column: "series", .text).notNull().defaults(to: "[]")
+                t.add(column: "subjects", .text).notNull().defaults(to: "[]")
+                t.add(column: "languages", .text).notNull().defaults(to: "[]")
+            }
+        }
         return migrator
     }
 

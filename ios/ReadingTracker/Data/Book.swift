@@ -9,6 +9,12 @@ enum BookFormat: String, Codable, DatabaseValueConvertible, Sendable {
     var label: String { rawValue.uppercased() }
 }
 
+/// One embedded series membership, including fractional positions such as 2.5.
+struct BookSeries: Codable, Hashable, Sendable {
+    var name: String
+    var position: Double?
+}
+
 /// A book in the library. The file itself lives in `BookStorage`.
 struct Book: Codable, Identifiable, Hashable, Sendable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "book"
@@ -21,6 +27,12 @@ struct Book: Codable, Identifiable, Hashable, Sendable, FetchableRecord, Persist
     var fileName: String
     /// Cover image file name inside the books folder, if the book has one
     var coverFileName: String?
+    /// Optional embedded book metadata. Arrays are stored as JSON by GRDB.
+    var description: String? = nil
+    var series: [BookSeries] = []
+    var subjects: [String] = []
+    /// BCP 47 language tags supplied by the publication, e.g. "en" or "vi".
+    var languages: [String] = []
     var size: Int64
     var addedAt: Date
     var lastOpenedAt: Date?
