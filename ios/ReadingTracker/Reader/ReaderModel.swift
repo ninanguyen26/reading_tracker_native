@@ -90,8 +90,7 @@ final class ReaderModel: ObservableObject {
                     initialLocation: initialLocation,
                     config: .init(
                         preferences: settings.pdfPreferences(systemDark: systemDark),
-                        // Highlights are EPUB-only for now: PDFKit doesn't pass custom menu actions on.
-                        editingActions: EditingAction.defaultActions
+                        editingActions: ReaderHostViewController.editingActions
                     ),
                     delegate: self
                 )

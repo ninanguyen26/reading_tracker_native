@@ -63,6 +63,37 @@ final class HighlightUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'No highlights yet'")).firstMatch.waitForExistence(timeout: 5))
     }
 
+    func testHighlightsInAPDF() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-reset-library", "-import-samples"]
+        app.launch()
+        let book = app.descendants(matching: .any)["book-Field Notes"].firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 15))
+        book.tap()
+        XCTAssertTrue(app.staticTexts["reader-progress"].waitForExistence(timeout: 15))
+        sleep(2) // PDFKit ignores selection gestures until the page is ready
+
+        // Select "tower" on the first line; a tap on the selection shows the menu.
+        let page = app.otherElements["reader-content"]
+        let word = page.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 142, dy: 258))
+        word.press(forDuration: 2)
+        let highlight = menuItem("Highlight", in: app)
+        for _ in 0..<3 where !highlight.waitForExistence(timeout: 2) { word.tap() }
+        highlight.tap()
+
+        // Tapping the highlight opens it.
+        sleep(1)
+        word.tap()
+        XCTAssertTrue(app.buttons["Pink"].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap()
+
+        page.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)).tap() // show the toolbar
+        XCTAssertTrue(app.buttons["Contents and Bookmarks"].waitForExistence(timeout: 5))
+        app.buttons["Contents and Bookmarks"].tap()
+        app.segmentedControls.buttons["Notes"].tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS 'tower'")).firstMatch.waitForExistence(timeout: 5))
+    }
+
     func testTheSelectionMenuOffersLookUp() {
         let app = openEPUB()
         selectWord(in: app, at: CGVector(dx: 0.5, dy: 0.28))
@@ -70,3 +101,4 @@ final class HighlightUITests: XCTestCase {
         XCTAssertTrue(menuItem("Look Up", in: app).exists)
     }
 }
+
