@@ -70,6 +70,13 @@ final class AppDatabase: Sendable {
                 t.add(column: "openLibraryFields", .text).notNull().defaults(to: "{}")
             }
         }
+        migrator.registerMigration("v6-book-genres") { db in
+            try db.alter(table: "book") { t in
+                t.add(column: "genre", .text)
+                t.add(column: "secondaryGenres", .text).notNull().defaults(to: "[]")
+                t.add(column: "genreSource", .text)
+            }
+        }
         return migrator
     }
 

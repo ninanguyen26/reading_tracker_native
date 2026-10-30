@@ -22,13 +22,20 @@ final class BookImporter {
     private let database: AppDatabase
     private let storage: BookStorage
     private let readium: ReadiumServices
+    private let openLibrary: (any OpenLibraryEnriching)?
+    private let classifier: BookGenreClassifier?
+    private var enrichments: [String: Task<Void, Never>] = [:]
 
     static let coverSize = CGSize(width: 600, height: 900)
 
-    init(database: AppDatabase, storage: BookStorage, readium: ReadiumServices = .shared) {
+    init(database: AppDatabase, storage: BookStorage, readium: ReadiumServices = .shared,
+         openLibrary: (any OpenLibraryEnriching)? = OpenLibraryClient.shared,
+         classifier: BookGenreClassifier? = .shared) {
         self.database = database
         self.storage = storage
         self.readium = readium
+        self.openLibrary = openLibrary
+        self.classifier = classifier
     }
 
     /// Imports a file from anywhere: the Files picker, "Open in…", or the app bundle.
@@ -69,13 +76,14 @@ final class BookImporter {
                 format: format,
                 fileName: fileName,
                 coverFileName: coverFileName,
-                description: pdfMetadata?.description ?? Self.clean(metadata.description),
+                description: BookDetailsText.description(pdfMetadata?.description ?? Self.clean(metadata.description)),
                 series: format == .epub ? (metadata.belongsTo["series"] ?? []).compactMap {
                     guard let name = Self.clean($0.name) else { return nil }
                     return BookSeries(name: name, position: $0.position)
                 } : pdfMetadata?.series ?? [],
                 subjects: pdfMetadata?.subjects ?? metadata.subjects.compactMap { Self.clean($0.name) },
                 languages: pdfMetadata?.languages ?? metadata.languages.compactMap { Self.clean($0) },
+                isbn: OpenLibraryISBN.normalize(metadata.identifier),
                 size: Self.fileSize(of: destination),
                 addedAt: Date(),
                 lastOpenedAt: nil,
@@ -83,6 +91,7 @@ final class BookImporter {
                 progression: 0
             )
             try await database.insert(book)
+            enrichAfterImport(book)
             return book
         } catch {
             // Don't leave half-imported files behind.
@@ -93,9 +102,40 @@ final class BookImporter {
     }
 
     func delete(_ book: Book) async throws {
+        enrichments.removeValue(forKey: book.id)?.cancel()
         try await database.deleteBook(id: book.id)
         storage.removeFiles(of: book)
     }
+
+    /// Save the imported file immediately; network failures never fail an import.
+    private func enrichAfterImport(_ book: Book) {
+        let classifier = classifier
+        let openLibrary = openLibrary
+        enrichments[book.id] = Task { [weak self] in
+            defer { self?.enrichments[book.id] = nil }
+            guard let database = self?.database else { return }
+            // Clear embedded subjects can be classified immediately, without AI or network.
+            if let decision = SubjectGenreMapping.classify(book.subjects), classifier != nil {
+                try? await database.saveAutomaticGenre(id: book.id, decision: decision,
+                                                       inputSignature: GenreInput(book: book).signature)
+            }
+            if let openLibrary, BookDetailsText.description(book.description) == nil ||
+                    book.series.isEmpty || book.subjects.isEmpty || book.languages.isEmpty {
+                do {
+                    if let metadata = try await openLibrary.metadata(for: book) {
+                        try Task.checkCancellation()
+                        _ = try await database.enrichBook(id: book.id, metadata: metadata,
+                            fields: Set(OpenLibraryField.allCases), classify: false)
+                    }
+                } catch { /* Keep the local import even if lookup fails. */ }
+            }
+            guard !Task.isCancelled else { return }
+            // Always run after enrichment (or its failure), including fully embedded imports.
+            await classifier?.classifyBook(id: book.id, database: database)
+        }
+    }
+
+    func waitForMetadata(bookID: String) async { await enrichments[bookID]?.value }
 
     // MARK: Helpers
 

@@ -27,12 +27,22 @@ struct Book: Codable, Identifiable, Hashable, Sendable, FetchableRecord, Persist
     var fileName: String
     /// Cover image file name inside the books folder, if the book has one
     var coverFileName: String?
-    /// Optional embedded book metadata. Arrays are stored as JSON by GRDB.
+    /// Embedded metadata, optionally supplemented by confirmed catalog lookups.
+    /// Arrays and dictionaries are stored as JSON by GRDB.
     var description: String? = nil
     var series: [BookSeries] = []
     var subjects: [String] = []
     /// BCP 47 language tags supplied by the publication, e.g. "en" or "vi".
     var languages: [String] = []
+    var isbn: String? = nil
+    var openLibraryWorkKey: String? = nil
+    var openLibraryEditionKey: String? = nil
+    /// Each enriched field's catalog record, preserving provenance across lookups.
+    var openLibraryFields: [String: String] = [:]
+    var genre: BookGenre? = nil
+    var secondaryGenres: [BookGenre] = []
+    /// "manual", "subjects", or "onDevice". Manual nil is deliberately unclassified.
+    var genreSource: String? = nil
     var size: Int64
     var addedAt: Date
     var lastOpenedAt: Date?

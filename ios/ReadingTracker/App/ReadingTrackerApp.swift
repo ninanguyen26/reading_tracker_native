@@ -23,8 +23,12 @@ struct ReadingTrackerApp: App {
                 .onOpenURL { url in library.importFiles([url]) }
                 .task {
                     #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("-genre-model-smoke-test") {
+                        await GenreModelSmokeTest.run()
+                    }
                     if ProcessInfo.processInfo.arguments.contains("-import-samples") {
-                        await environment.importDebugFixtures()
+                        let copies = ProcessInfo.processInfo.arguments.contains("-layout-samples") ? 3 : 1
+                        for _ in 0..<copies { await environment.importDebugFixtures() }
                     }
                     #endif
                 }

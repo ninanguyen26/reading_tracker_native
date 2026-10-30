@@ -36,19 +36,19 @@ struct AppNavigationBar: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Add Books")
-            .offset(y: -17)
+            .offset(y: -10)
             .frame(maxWidth: .infinity)
             tab(.stats)
             tab(.settings)
         }
-        .frame(height: 78)
+        .frame(height: 64)
         .background {
             CenterNotch()
                 .fill(AppPalette.surface)
                 .shadow(color: .black.opacity(0.05), radius: 5, y: -2)
                 .ignoresSafeArea(edges: .bottom)
         }
-        .padding(.top, 14)
+        .padding(.top, 10)
     }
 
     private func tab(_ tab: AppTab) -> some View {
@@ -63,7 +63,7 @@ struct AppNavigationBar: View {
                     .font(.caption2.weight(selection == tab ? .semibold : .regular))
             }
             .foregroundStyle(selection == tab ? AppPalette.accent : AppPalette.secondaryText)
-            .frame(maxWidth: .infinity, minHeight: 64)
+            .frame(maxWidth: .infinity, minHeight: 52)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

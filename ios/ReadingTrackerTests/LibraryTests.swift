@@ -13,7 +13,7 @@ final class LibraryTests: XCTestCase {
         database = try AppDatabase.inMemory()
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         storage = BookStorage(directory: folder)
-        importer = BookImporter(database: database, storage: storage)
+        importer = BookImporter(database: database, storage: storage, openLibrary: nil, classifier: nil)
     }
 
     override func tearDown() async throws {
@@ -138,10 +138,10 @@ final class LibraryTests: XCTestCase {
     }
 
     func testMalformedPDFXMPFallsBackToDocumentProperties() async throws {
-        let source = try metadataPDF(xmp: "<broken><description>Partial value", info: "/Subject (Fallback) /Keywords (History)", language: "en")
+        let source = try metadataPDF(xmp: "<broken><description>Partial value", info: "/Subject (Fallback description) /Keywords (History)", language: "en")
         defer { try? FileManager.default.removeItem(at: source) }
         let book = try await importer.importBook(from: source)
-        XCTAssertEqual(book.description, "Fallback")
+        XCTAssertEqual(book.description, "Fallback description")
         XCTAssertEqual(book.subjects, ["History"])
         XCTAssertEqual(book.languages, ["en"])
     }

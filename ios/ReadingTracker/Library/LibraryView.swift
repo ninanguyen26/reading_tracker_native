@@ -16,11 +16,28 @@ struct LibraryView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            rootContent
+            VStack(spacing: 0) {
+                if selectedTab == .home {
+                    Text("Home")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 30)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("home-title")
+                }
+                rootContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+                AppNavigationBar(selection: $selectedTab) {
+                    searchFocused = false
+                    showingImporter = true
+                }
+            }
             .background(AppPalette.background)
             .foregroundStyle(AppPalette.text)
             .toolbarBackground(AppPalette.background, for: .navigationBar)
             .navigationTitle(selectedTab.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(selectedTab == .home ? .hidden : .visible, for: .navigationBar)
             .navigationDestination(for: String.self) { id in
                 if let book = model.books.first(where: { $0.id == id }) {
                     ReaderScreen(book: book, environment: model.environment)
@@ -61,14 +78,6 @@ struct LibraryView: View {
                 Text(model.errorMessage ?? "")
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if path.isEmpty {
-                AppNavigationBar(selection: $selectedTab) {
-                    searchFocused = false
-                    showingImporter = true
-                }
-            }
-        }
     }
 
     @ViewBuilder private var rootContent: some View {
@@ -93,6 +102,7 @@ struct LibraryView: View {
                         .padding(.bottom, 24)
                     }
                     .scrollDismissesKeyboard(.interactively)
+                    .accessibilityIdentifier("library-scroll")
                 }
             }
         case .home:
@@ -112,6 +122,7 @@ struct LibraryView: View {
                     }
                     .padding()
                 }
+                .accessibilityIdentifier("home-scroll")
             }
         case .stats:
             LibraryStatsView(books: model.books)

@@ -73,7 +73,7 @@ final class ReaderUITests: XCTestCase {
         app.buttons["Clear Search"].tap()
 
         app.buttons["tab-home"].tap()
-        XCTAssertTrue(app.navigationBars["Home"].exists)
+        XCTAssertTrue(app.staticTexts["home-title"].exists)
         XCTAssertTrue(book(epubTitle, in: app).exists)
         app.buttons["tab-stats"].tap()
         XCTAssertTrue(app.navigationBars["Stats"].exists)
@@ -84,15 +84,44 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Reading Settings"].waitForExistence(timeout: 5))
         app.buttons["Done"].tap()
         app.buttons["Add Books"].tap()
-        XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 15))
         app.buttons["Cancel"].tap()
 
         app.buttons["tab-library"].tap()
+        XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 5))
         book(epubTitle, in: app).tap()
         waitForProgress(in: app, matching: "Location 1 of .*")
         XCTAssertFalse(app.buttons["tab-home"].exists)
         goBack(in: app)
         XCTAssertTrue(app.buttons["tab-home"].exists)
+    }
+
+    func testHomeAndLibraryContentClearsCompactNavigation() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-reset-library", "-import-samples", "-layout-samples", "-open-library-fixtures"]
+        app.launch()
+        XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 15))
+        let homeTab = app.buttons["tab-home"]
+        XCTAssertLessThan(app.navigationBars["Library"].frame.height, 60)
+        let library = app.scrollViews["library-scroll"]
+        XCTAssertLessThanOrEqual(library.frame.maxY, homeTab.frame.minY)
+        library.swipeUp()
+        library.swipeUp()
+        let lastLibraryBook = app.buttons.matching(identifier: "book-\(epubTitle)").element(boundBy: 2)
+        XCTAssertTrue(lastLibraryBook.waitForExistence(timeout: 5))
+        XCTAssertLessThanOrEqual(lastLibraryBook.frame.maxY, homeTab.frame.minY)
+        captureDetails("Library Bottom Clearance", in: app)
+
+        homeTab.tap()
+        XCTAssertLessThanOrEqual(app.staticTexts["home-title"].frame.height, 32)
+        let home = app.scrollViews["home-scroll"]
+        XCTAssertLessThanOrEqual(home.frame.maxY, homeTab.frame.minY)
+        home.swipeUp()
+        let lastHomeBook = app.buttons.matching(identifier: "book-\(epubTitle)").element(boundBy: 1)
+        XCTAssertTrue(lastHomeBook.waitForExistence(timeout: 5))
+        XCTAssertLessThanOrEqual(lastHomeBook.frame.maxY, homeTab.frame.minY)
+        XCTAssertLessThanOrEqual(app.frame.maxY - homeTab.frame.maxY, 45)
+        captureDetails("Home Bottom Clearance", in: app)
     }
 
     func testPaletteInLightAndDarkAppearance() {
@@ -137,14 +166,36 @@ final class ReaderUITests: XCTestCase {
         captureDetails("EPUB Book Details", in: app)
         app.scrollViews.firstMatch.swipeUp()
         XCTAssertTrue(app.staticTexts["Series"].exists)
-        XCTAssertTrue(app.staticTexts["Island Stories · Book 2.5"].exists)
-        XCTAssertTrue(app.staticTexts["Coastal Tales"].exists)
-        XCTAssertTrue(app.staticTexts["Fiction · Sea stories"].exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Island Stories · Book 2.5")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Coastal Tales")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["Fiction"].exists)
+        XCTAssertTrue(app.staticTexts["Sea stories"].exists)
         XCTAssertTrue(app.staticTexts["Languages"].exists)
         captureDetails("EPUB Metadata", in: app)
         app.scrollViews.firstMatch.swipeDown()
         app.buttons["Read Book"].tap()
         waitForProgress(in: app, matching: "Location 1 of .*")
+    }
+
+    func testBookDetailsButtonsAndLayoutInBothAppearances() {
+        for appearance in ["light", "dark"] {
+            let app = launch(fresh: true, appearance: appearance)
+            XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 15))
+            book(epubTitle, in: app).press(forDuration: 1)
+            app.buttons["Book Details"].tap()
+            let edit = app.buttons["Edit Genres"]
+            XCTAssertTrue(edit.waitForExistence(timeout: 5))
+            XCTAssertGreaterThanOrEqual(edit.frame.height, 43.5)
+            XCTAssertGreaterThanOrEqual(app.buttons["Read Book"].frame.height, 43.5)
+            captureDetails("\(appearance) Redesigned Book Details", in: app)
+            app.scrollViews.firstMatch.swipeUp()
+            let lookup = app.buttons["find-missing-details"]
+            XCTAssertTrue(lookup.exists)
+            XCTAssertGreaterThanOrEqual(lookup.frame.height, 43.5)
+            captureDetails("\(appearance) Redesigned Metadata", in: app)
+            app.buttons["Done"].tap()
+            app.terminate()
+        }
     }
 
     func testPDFDetailsHidesMissingFieldsAndCanBeOpenedFromReader() {
