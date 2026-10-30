@@ -27,7 +27,9 @@
 		A32A04BCFA336C41E66DE29E /* NavigationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CC29520B4503F1C55F43A5 /* NavigationSheet.swift */; };
 		A6EC0E1B3C016986BF90C214 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6661604D5FBFB26E9D30EFEB /* AppEnvironment.swift */; };
 		B326BD78B99EE161C5817FB1 /* ReaderUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6A0FC2116357E1C05C6B4E /* ReaderUITests.swift */; };
+		C04E53839EB97498EE686AB9 /* BookSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C78D8402BBCD90DF94C5B653 /* BookSearch.swift */; };
 		C092B900E878D6B51EF07644 /* ReaderModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BE0225F6FA98237FC56CDA4 /* ReaderModel.swift */; };
+		CD3C7913964A3EEB6231FDBA /* SearchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63C0D5879E2D17585696C5BA /* SearchSheet.swift */; };
 		CD3CAD20056D94049289F5CF /* ReadiumShared in Frameworks */ = {isa = PBXBuildFile; productRef = 3E13AAA7A8B9A483A82E3420 /* ReadiumShared */; };
 		CE166E4D654F6B2BD26D2E7D /* BookImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EB3817AC228D77744AE5232 /* BookImporter.swift */; };
 		D2B19B4173E4633FFC7ED3CC /* ReaderHostViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1695BAA4F5507C78D653B96 /* ReaderHostViewController.swift */; };
@@ -69,6 +71,7 @@
 		57D11396EA48A889334C15C9 /* ReaderScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderScreen.swift; sourceTree = "<group>"; };
 		57E1F79A97D27D4447D2633D /* Book.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Book.swift; sourceTree = "<group>"; };
 		61F5DB0EE19977F35F36D56D /* ReaderSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettingsSheet.swift; sourceTree = "<group>"; };
+		63C0D5879E2D17585696C5BA /* SearchSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchSheet.swift; sourceTree = "<group>"; };
 		6661604D5FBFB26E9D30EFEB /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		7176BC0FD8ACB38DFB26F3F4 /* DebugFixtures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DebugFixtures; path = ReadingTracker/Resources/DebugFixtures; sourceTree = SOURCE_ROOT; };
 		7CC13C39FF13984A87B75E7F /* AppDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDatabase.swift; sourceTree = "<group>"; };
@@ -81,6 +84,7 @@
 		A91BF8E5587180FD64A35BA0 /* LibraryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModel.swift; sourceTree = "<group>"; };
 		AA6A0FC2116357E1C05C6B4E /* ReaderUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderUITests.swift; sourceTree = "<group>"; };
 		C1695BAA4F5507C78D653B96 /* ReaderHostViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderHostViewController.swift; sourceTree = "<group>"; };
+		C78D8402BBCD90DF94C5B653 /* BookSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSearch.swift; sourceTree = "<group>"; };
 		E7DB7F2BD5DD26B89BDF7BC5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		EB6A75B46055E0255DC0439C /* ReadingTrackerUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ReadingTrackerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F2BB3BE46BC7A8DDB0425AAE /* NavigationUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationUITests.swift; sourceTree = "<group>"; };
@@ -198,11 +202,13 @@
 		C7F9AA68BE82235D5A94A156 /* Reader */ = {
 			isa = PBXGroup;
 			children = (
+				C78D8402BBCD90DF94C5B653 /* BookSearch.swift */,
 				A4CC29520B4503F1C55F43A5 /* NavigationSheet.swift */,
 				C1695BAA4F5507C78D653B96 /* ReaderHostViewController.swift */,
 				0BE0225F6FA98237FC56CDA4 /* ReaderModel.swift */,
 				57D11396EA48A889334C15C9 /* ReaderScreen.swift */,
 				61F5DB0EE19977F35F36D56D /* ReaderSettingsSheet.swift */,
+				63C0D5879E2D17585696C5BA /* SearchSheet.swift */,
 			);
 			path = Reader;
 			sourceTree = "<group>";
@@ -369,6 +375,7 @@
 				33D73BACFF71F44B84D8E8AF /* Book.swift in Sources */,
 				1CACBEC4A5D8864FB56D18E7 /* BookCoverView.swift in Sources */,
 				CE166E4D654F6B2BD26D2E7D /* BookImporter.swift in Sources */,
+				C04E53839EB97498EE686AB9 /* BookSearch.swift in Sources */,
 				0F4113F4F241F8086C91F514 /* BookStorage.swift in Sources */,
 				7B8DAF3E2B3F872BAECFF8C4 /* Bookmark.swift in Sources */,
 				EBC9CEA0FADAE6A272B1B4A3 /* LibraryModel.swift in Sources */,
@@ -381,6 +388,7 @@
 				9E545D0E3E67AAD15C03462C /* ReaderSettingsSheet.swift in Sources */,
 				E1C0602FA207BC55C2EAE5C0 /* ReadingTrackerApp.swift in Sources */,
 				008441A1D0023E06A26021FE /* ReadiumServices.swift in Sources */,
+				CD3C7913964A3EEB6231FDBA /* SearchSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

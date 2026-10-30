@@ -80,6 +80,20 @@ final class NavigationUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'No bookmarks yet'")).firstMatch.waitForExistence(timeout: 5))
     }
 
+    func testSearchesTheBookAndJumpsToAResult() {
+        let app = open(epubTitle)
+        showToolbar(app)
+        app.buttons["Search"].tap()
+        let field = app.textFields["search-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.typeText("logbook\n")
+        waitFor(app.staticTexts["search-summary"], label: "\\d+ results for “logbook”", timeout: 15)
+        app.buttons.matching(NSPredicate(format: "label CONTAINS 'logbook'")).element(boundBy: 0).tap()
+        XCTAssertTrue(app.buttons["Results for “logbook”"].waitForExistence(timeout: 5))
+        app.buttons["Clear Search"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Results for “logbook”"].waitForNonExistence(timeout: 5))
+    }
+
     func testPdfOutlineAndSlider() {
         let app = open(pdfTitle)
         let progress = app.staticTexts["reader-progress"]

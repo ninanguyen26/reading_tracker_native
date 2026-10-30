@@ -1,4 +1,5 @@
 import Foundation
+import PDFKit
 import ReadiumNavigator
 import ReadiumShared
 import UIKit
@@ -27,6 +28,7 @@ final class ReaderModel: ObservableObject {
     }
     @Published private(set) var tableOfContents: [Link] = []
     @Published private(set) var bookmarks: [Bookmark] = []
+    @Published private(set) var search = BookSearch()
     /// Whether the system is in dark mode, for the "Auto" theme.
     @Published private(set) var systemDark = false
 
@@ -35,6 +37,9 @@ final class ReaderModel: ObservableObject {
     private(set) var publication: Publication?
     private(set) var navigator: (VisualNavigator & UIViewController)?
     private var bookmarkObservation: Task<Void, Never>?
+    private var searchTask: Task<Void, Never>?
+    /// PDFKit's view inside the PDF navigator, used to mark search matches.
+    private weak var pdfView: PDFView?
 
     init(book: Book, environment: AppEnvironment) {
         self.book = book
@@ -105,7 +110,71 @@ final class ReaderModel: ObservableObject {
         }
     }
 
-    deinit { bookmarkObservation?.cancel() }
+    deinit {
+        bookmarkObservation?.cancel()
+        searchTask?.cancel()
+    }
+
+    // MARK: Search
+
+    var isSearchable: Bool { publication?.isSearchable ?? false }
+
+    func runSearch(_ query: String) {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty, let publication else { return }
+        searchTask?.cancel()
+        clearSearchMarks()
+        search = BookSearch(query: query, status: .searching)
+        searchTask = Task { [weak self] in
+            switch await publication.search(query: query) {
+            case .failure(let error):
+                self?.search.status = .failed(error.localizedDescription)
+            case .success(let iterator):
+                defer { iterator.close() }
+                while !Task.isCancelled {
+                    switch await iterator.next() {
+                    case .success(let page?):
+                        self?.search.append(page.locators)
+                    case .success(nil):
+                        self?.search.status = .done
+                        return
+                    case .failure(let error):
+                        self?.search.status = .failed(error.localizedDescription)
+                        return
+                    }
+                }
+            }
+        }
+    }
+
+    func go(toSearchResult locator: Locator) {
+        search.selected = locator
+        Task { _ = await navigator?.go(to: locator, options: .animated) }
+        markSearchResult(locator)
+    }
+
+    func clearSearch() {
+        searchTask?.cancel()
+        search = BookSearch()
+        clearSearchMarks()
+    }
+
+    /// EPUB: Readium draws a decoration. PDF: PDFKit marks every match of the query.
+    private func markSearchResult(_ locator: Locator) {
+        if let decorable = navigator as? DecorableNavigator {
+            decorable.apply(
+                decorations: [Decoration(id: "search", locator: locator, style: .highlight(tint: .systemYellow, isActive: true))],
+                in: "search"
+            )
+        } else if let pdfView, let document = pdfView.document {
+            pdfView.highlightedSelections = document.findString(search.query, withOptions: .caseInsensitive)
+        }
+    }
+
+    private func clearSearchMarks() {
+        (navigator as? DecorableNavigator)?.apply(decorations: [], in: "search")
+        pdfView?.highlightedSelections = nil
+    }
 
     // MARK: Navigation
 
@@ -206,6 +275,10 @@ extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
     func navigator(_ navigator: Navigator, locationDidChange locator: Locator) {
         self.locator = locator
         save(locator)
+    }
+
+    func navigator(_ navigator: PDFNavigatorViewController, setupPDFView view: PDFDocumentView) {
+        pdfView = view
     }
 
     func navigator(_ navigator: Navigator, presentError error: NavigatorError) {

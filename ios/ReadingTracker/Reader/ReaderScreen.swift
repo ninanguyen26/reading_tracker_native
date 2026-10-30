@@ -9,7 +9,7 @@ struct ReaderScreen: View {
     @State private var scrubCommit: Task<Void, Never>?
 
     enum Sheet: Identifiable {
-        case settings, navigation
+        case settings, navigation, search
         var id: Self { self }
     }
 
@@ -52,6 +52,14 @@ struct ReaderScreen: View {
                     .transition(.opacity)
             }
         }
+        .overlay(alignment: .top) {
+            // After opening a search result, a chip leads back to the results.
+            if model.search.selected != nil && sheet == nil {
+                searchChip
+                    .padding(.top, model.chromeVisible ? 8 : 4)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
         .overlay(alignment: .bottom) {
             if model.chromeVisible, case .ready = model.state {
                 bottomBar.transition(.move(edge: .bottom).combined(with: .opacity))
@@ -63,6 +71,10 @@ struct ReaderScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                Button { sheet = .search } label: {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+                .disabled(!model.isSearchable)
                 Button { sheet = .navigation } label: {
                     Label("Contents and Bookmarks", systemImage: "list.bullet")
                 }
@@ -89,6 +101,8 @@ struct ReaderScreen: View {
                 ReaderSettingsSheet(settings: $model.settings, format: model.book.format)
             case .navigation:
                 NavigationSheet(model: model)
+            case .search:
+                SearchSheet(model: model)
             }
         }
         .task {
@@ -96,6 +110,27 @@ struct ReaderScreen: View {
             await model.load()
         }
         .onChange(of: colorScheme) { model.setSystemDark($0 == .dark) }
+    }
+
+    private var searchChip: some View {
+        HStack(spacing: 0) {
+            Button { sheet = .search } label: {
+                Label("Results for “\(model.search.query)”", systemImage: "magnifyingglass")
+                    .font(.footnote.weight(.medium))
+                    .padding(.leading, 12)
+                    .padding(.vertical, 8)
+            }
+            Button { model.clearSearch() } label: {
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.semibold))
+                    .padding(10)
+            }
+            .accessibilityLabel("Clear Search")
+        }
+        .foregroundStyle(.primary)
+        .background(.regularMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+        .environment(\.colorScheme, palette.isDark ? .dark : .light)
     }
 
     /// Shown with the toolbar: a slider to move through the book.
