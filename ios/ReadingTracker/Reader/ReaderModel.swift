@@ -29,6 +29,9 @@ final class ReaderModel: ObservableObject {
     @Published private(set) var tableOfContents: [Link] = []
     @Published private(set) var bookmarks: [Bookmark] = []
     @Published private(set) var search = BookSearch()
+    @Published var highlights: [Highlight] = []
+    /// The highlight open in the editor sheet; `focusNote` puts the cursor in the note.
+    @Published var editing: (id: String, focusNote: Bool)?
     /// Whether the system is in dark mode, for the "Auto" theme.
     @Published private(set) var systemDark = false
 
@@ -37,9 +40,14 @@ final class ReaderModel: ObservableObject {
     private(set) var publication: Publication?
     private(set) var navigator: (VisualNavigator & UIViewController)?
     private var bookmarkObservation: Task<Void, Never>?
+    var highlightObservation: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
-    /// PDFKit's view inside the PDF navigator, used to mark search matches.
-    private weak var pdfView: PDFView?
+    /// PDFKit's view inside the PDF navigator, used for search marks and highlights.
+    weak var pdfView: PDFView?
+    /// PDF highlights drawn as annotations, by highlight ID.
+    var pdfAnnotations: [String: [PDFAnnotation]] = [:]
+
+    var environmentDatabase: AppDatabase { environment.database }
 
     init(book: Book, environment: AppEnvironment) {
         self.book = book
@@ -80,28 +88,38 @@ final class ReaderModel: ObservableObject {
                 navigator = try PDFNavigatorViewController(
                     publication: publication,
                     initialLocation: initialLocation,
-                    config: .init(preferences: settings.pdfPreferences(systemDark: systemDark)),
+                    config: .init(
+                        preferences: settings.pdfPreferences(systemDark: systemDark),
+                        // Highlights are EPUB-only for now: PDFKit doesn't pass custom menu actions on.
+                        editingActions: EditingAction.defaultActions
+                    ),
                     delegate: self
                 )
             } else {
                 let epub = try EPUBNavigatorViewController(
                     publication: publication,
                     initialLocation: initialLocation,
-                    config: .init(preferences: settings.epubPreferences(systemDark: systemDark))
+                    config: .init(
+                        preferences: settings.epubPreferences(systemDark: systemDark),
+                        editingActions: ReaderHostViewController.editingActions
+                    )
                 )
                 epub.delegate = self
                 navigator = epub
             }
             self.navigator = navigator
-            state = .ready(ReaderHostViewController(
-                navigator: navigator,
+            state = .ready(ReaderHostViewController(navigator: navigator, actions: .init(
                 isScrolling: { [weak self] in self?.settings.scroll ?? false },
                 onTapCenter: { [weak self] in self?.chromeVisible.toggle() },
                 // Like a Kindle, turning the page tucks the toolbars away.
-                onPageTurn: { [weak self] in self?.chromeVisible = false }
-            ))
+                onPageTurn: { [weak self] in self?.chromeVisible = false },
+                onHighlightSelection: { [weak self] in self?.highlightSelection(openNote: false) },
+                onNoteOnSelection: { [weak self] in self?.highlightSelection(openNote: true) },
+                openPDFHighlight: { [weak self] point in self?.openPDFHighlight(at: point) ?? false }
+            )))
             locator = initialLocation
             observeBookmarks()
+            observeHighlights()
             try? await environment.database.markOpened(id: book.id)
             tableOfContents = (try? await publication.tableOfContents().get()) ?? []
             positionCount = try? await publication.positions().get().count
@@ -112,6 +130,7 @@ final class ReaderModel: ObservableObject {
 
     deinit {
         bookmarkObservation?.cancel()
+        highlightObservation?.cancel()
         searchTask?.cancel()
     }
 
@@ -279,6 +298,8 @@ extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
 
     func navigator(_ navigator: PDFNavigatorViewController, setupPDFView view: PDFDocumentView) {
         pdfView = view
+        // Highlights may have loaded before PDFKit's view existed.
+        drawHighlights()
     }
 
     func navigator(_ navigator: Navigator, presentError error: NavigatorError) {

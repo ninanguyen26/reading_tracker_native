@@ -115,6 +115,12 @@ struct ReaderScreen: View {
                 )
             }
         }
+        .sheet(isPresented: Binding(get: { model.editing != nil && sheet == nil }, set: { if !$0 { model.editing = nil } })) {
+            if let highlight = model.editingHighlight {
+                HighlightSheet(model: model, highlight: highlight, focusNote: model.editing?.focusNote ?? false)
+                    .id(highlight.id)
+            }
+        }
         .task {
             model.setSystemDark(colorScheme == .dark)
             await model.load()

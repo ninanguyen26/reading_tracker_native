@@ -46,6 +46,30 @@ final class AppDatabase: Sendable {
                 t.add(column: "languages", .text).notNull().defaults(to: "[]")
             }
         }
+        migrator.registerMigration("v4-highlights") { db in
+            try db.create(table: "highlight") { t in
+                t.primaryKey("id", .text)
+                t.column("bookId", .text).notNull().indexed()
+                    .references("book", onDelete: .cascade)
+                t.column("locator", .text).notNull()
+                t.column("text", .text).notNull()
+                t.column("color", .text).notNull()
+                t.column("note", .text).notNull().defaults(to: "")
+                t.column("progression", .double).notNull()
+                t.column("chapter", .text)
+                t.column("pdfRects", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+        }
+        migrator.registerMigration("v5-open-library") { db in
+            try db.alter(table: "book") { t in
+                t.add(column: "isbn", .text)
+                t.add(column: "openLibraryWorkKey", .text)
+                t.add(column: "openLibraryEditionKey", .text)
+                t.add(column: "openLibraryFields", .text).notNull().defaults(to: "{}")
+            }
+        }
         return migrator
     }
 
@@ -108,6 +132,38 @@ final class AppDatabase: Sendable {
         ValueObservation
             .tracking { db in
                 try Bookmark
+                    .filter(Column("bookId") == bookId)
+                    .order(Column("progression"), Column("createdAt"))
+                    .fetchAll(db)
+            }
+            .values(in: writer)
+    }
+
+    // MARK: Highlights
+
+    func addHighlight(_ highlight: Highlight) async throws {
+        try await writer.write { try highlight.insert($0) }
+    }
+
+    func updateHighlight(id: String, color: Highlight.Color? = nil, note: String? = nil) async throws {
+        try await writer.write { db in
+            guard var highlight = try Highlight.fetchOne(db, key: id) else { return }
+            if let color { highlight.color = color }
+            if let note { highlight.note = note }
+            highlight.updatedAt = Date()
+            try highlight.update(db)
+        }
+    }
+
+    func deleteHighlight(id: String) async throws {
+        _ = try await writer.write { try Highlight.deleteOne($0, key: id) }
+    }
+
+    /// A book's highlights in reading order, now and whenever they change.
+    func observeHighlights(bookId: String) -> AsyncValueObservation<[Highlight]> {
+        ValueObservation
+            .tracking { db in
+                try Highlight
                     .filter(Column("bookId") == bookId)
                     .order(Column("progression"), Column("createdAt"))
                     .fetchAll(db)

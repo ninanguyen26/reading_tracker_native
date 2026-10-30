@@ -100,7 +100,7 @@ final class NavigationUITests: XCTestCase {
         waitFor(progress, label: "Page 1 of 6 · 0%")
 
         openContents(app, tab: "Contents")
-        app.buttons["Notes"].tap()
+        app.collectionViews.buttons["Notes"].tap() // the outline entry, not the Notes tab
         waitFor(progress, label: "Page 5 of 6 · \\d+%")
 
         showToolbar(app)

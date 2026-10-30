@@ -6,6 +6,7 @@ struct NavigationSheet: View {
     enum Tab: String, CaseIterable, Identifiable {
         case contents = "Contents"
         case bookmarks = "Bookmarks"
+        case notes = "Notes"
         var id: String { rawValue }
     }
 
@@ -19,6 +20,7 @@ struct NavigationSheet: View {
                 switch tab {
                 case .contents: contents
                 case .bookmarks: bookmarkList
+                case .notes: notesList
                 }
             }
             .safeAreaInset(edge: .top) {
@@ -35,6 +37,13 @@ struct NavigationSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
+                }
+                if tab == .notes, let exportFile {
+                    ToolbarItem(placement: .topBarLeading) {
+                        ShareLink(item: exportFile) {
+                            Label("Export Notes", systemImage: "square.and.arrow.up")
+                        }
+                    }
                 }
             }
         }
@@ -120,6 +129,64 @@ struct NavigationSheet: View {
             }
             .listStyle(.plain)
         }
+    }
+
+    // MARK: Notes
+
+    @ViewBuilder private var notesList: some View {
+        if model.highlights.isEmpty {
+            emptyState("No highlights yet. Select text while reading and choose Highlight or Note.", systemImage: "highlighter")
+        } else {
+            List {
+                ForEach(model.highlights) { highlight in
+                    Button {
+                        model.go(to: highlight)
+                        dismiss()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("\(highlight.chapter.map { "\($0) · " } ?? "")\(highlight.progression.formatted(.percent.precision(.fractionLength(0))))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(highlight.text)
+                                .font(.system(.subheadline, design: .serif))
+                                .lineLimit(4)
+                                .padding(.leading, 9)
+                                .overlay(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 1.5)
+                                        .fill(Color(uiColor: highlight.color.uiColor))
+                                        .frame(width: 3)
+                                }
+                            if !highlight.note.isEmpty {
+                                Text(highlight.note)
+                                    .font(.subheadline)
+                                    .italic()
+                                    .foregroundStyle(.secondary)
+                                    .padding(.leading, 12)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("note-\(highlight.text)")
+                }
+                .onDelete { offsets in
+                    offsets.map { model.highlights[$0] }.forEach(model.delete)
+                }
+            }
+            .listStyle(.plain)
+        }
+    }
+
+    /// This book's notes as a Markdown file, for the share sheet.
+    private var exportFile: URL? {
+        guard !model.highlights.isEmpty else { return nil }
+        let book = NotesExport.BookInfo(title: model.book.title, author: model.book.author)
+        return try? NotesExport.temporaryFile(
+            named: NotesExport.fileName(for: model.book.title),
+            contents: NotesExport.markdown(for: book, highlights: model.highlights)
+        )
     }
 
     private func emptyState(_ text: String, systemImage: String) -> some View {
