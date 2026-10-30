@@ -9,7 +9,7 @@ struct BookDetailsScreen: View {
     @State private var showingLookup = false
     @State private var showingGenres = false
     @State private var expandedDescription = false
-    @State private var expandedSubjects = false
+    @State private var loadingPages = true
     private var description: String? { BookDetailsText.description(book.description) }
 
     init(book: Book, coverURL: URL?, onRead: (() -> Void)? = nil) {
@@ -18,14 +18,16 @@ struct BookDetailsScreen: View {
         self.onRead = onRead
     }
     private var series: [BookSeries] { book.series.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } }
-    private var subjects: [String] { BookDetailsText.nonempty(book.subjects) }
     private var languages: [String] { BookDetailsText.nonempty(book.languages) }
     private var metadataSources: [String: String] {
-        book.openLibraryFields.filter {
-            ($0.key != "description" || description != nil) &&
+        var sources = book.openLibraryFields.filter {
+            ($0.key != "description" || description != nil) && $0.key != "subjects" &&
             (OpenLibraryClient.validKey($0.value, kind: "books", suffix: "M") ||
              OpenLibraryClient.validKey($0.value, kind: "works", suffix: "W"))
         }
+        if book.pageCountSource == .openLibrary, let key = book.pageCountEditionKey,
+           OpenLibraryClient.validKey(key, kind: "books", suffix: "M") { sources["pages"] = key }
+        return sources
     }
 
     var body: some View {
@@ -74,6 +76,10 @@ struct BookDetailsScreen: View {
                     }
                 } catch { /* Keep already loaded details if observation ends. */ }
             }
+            .task(id: book.id + "|" + (book.openLibraryEditionKey ?? "")) {
+                await environment.importer.updatePageCount(for: book)
+                loadingPages = false
+            }
             .task(id: book.id) {
                 guard book.description != nil, description == nil,
                       let key = book.openLibraryWorkKey,
@@ -114,20 +120,39 @@ struct BookDetailsScreen: View {
     private func synopsisCard(_ description: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             heading("Description")
-            Text(description)
+            Text(synopsisText(description))
                 .font(.subheadline)
                 .lineSpacing(4)
-                .lineLimit(!expandedDescription && description.count > 280 ? 6 : nil)
                 .textSelection(.enabled)
                 .accessibilityIdentifier("details-description")
-            if description.count > 280 {
-                Button { expandedDescription.toggle() } label: {
-                    Label(expandedDescription ? "Show Less" : "Read More", systemImage: expandedDescription ? "chevron.up" : "chevron.down")
-                }
-                .buttonStyle(DetailsActionStyle())
-            }
+                .environment(\.openURL, OpenURLAction { url in
+                    guard url.scheme == "book-description" else { return .systemAction }
+                    withAnimation(.easeInOut(duration: 0.2)) { expandedDescription.toggle() }
+                    return .handled
+                })
         }
         .detailsCard()
+    }
+
+    private var pageCountLabel: String {
+        guard let count = book.pageCount, count > 0 else { return loadingPages ? "Calculating…" : "Unavailable" }
+        return count.formatted() + (book.pageCountSource == .estimated ? " (estimated)" : "")
+    }
+
+    private func synopsisText(_ description: String) -> AttributedString {
+        guard description.count > 280 else { return AttributedString(description) }
+        var excerpt = String(description.prefix(220)).trimmingCharacters(in: .whitespacesAndNewlines)
+        if let boundary = excerpt.lastIndex(where: \.isWhitespace), excerpt[..<boundary].count > 140 {
+            excerpt = String(excerpt[..<boundary])
+        }
+        var text = AttributedString(expandedDescription ? description + " " : excerpt + "… ")
+        var action = AttributedString(expandedDescription ? "Show Less" : "Read More")
+        action.link = URL(string: "book-description://toggle")!
+        action.foregroundColor = AppPalette.accent
+        action.underlineStyle = .single
+        action.inlinePresentationIntent = .stronglyEmphasized
+        text.append(action)
+        return text
     }
 
     private var informationCard: some View {
@@ -143,8 +168,11 @@ struct BookDetailsScreen: View {
                     .accessibilityIdentifier("book-primary-genre")
                 ForEach(book.secondaryGenres, id: \.self) { detailChip($0.rawValue) }
             }
+            Divider().overlay(AppPalette.border)
+            metadataRow("Pages", value: pageCountLabel)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("details-pages")
             if !series.isEmpty || !languages.isEmpty {
-                Divider().overlay(AppPalette.border)
                 if !series.isEmpty {
                     metadataRow("Series", value: series.map(BookDetailsText.series).joined(separator: "\n"))
                 }
@@ -153,21 +181,7 @@ struct BookDetailsScreen: View {
                                 value: languages.map { Locale.current.localizedString(forIdentifier: $0) ?? $0 }.joined(separator: ", "))
                 }
             }
-            if !subjects.isEmpty {
-                Divider().overlay(AppPalette.border)
-                heading("Subjects")
-                DetailsFlowLayout(spacing: 8) {
-                    ForEach(Array((expandedSubjects ? subjects : Array(subjects.prefix(6))).enumerated()), id: \.offset) { _, subject in
-                        detailChip(subject)
-                    }
-                }
-                if subjects.count > 6 {
-                    Button(expandedSubjects ? "Show Fewer Subjects" : "Show All \(subjects.count) Subjects") {
-                        expandedSubjects.toggle()
-                    }
-                    .buttonStyle(DetailsActionStyle())
-                }
-            }
+
         }
         .detailsCard()
     }
@@ -181,7 +195,7 @@ struct BookDetailsScreen: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Open Library").font(.subheadline.weight(.semibold))
                                 Text(metadataSources.filter { $0.value == key }.keys.sorted().map {
-                                    OpenLibraryField(rawValue: $0)?.label ?? $0
+                                    OpenLibraryField(rawValue: $0)?.label ?? $0.capitalized
                                 }.joined(separator: ", "))
                                 .font(.caption).foregroundStyle(AppPalette.secondaryText)
                             }

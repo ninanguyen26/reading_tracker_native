@@ -43,6 +43,9 @@ struct Book: Codable, Identifiable, Hashable, Sendable, FetchableRecord, Persist
     var secondaryGenres: [BookGenre] = []
     /// "manual", "subjects", or "onDevice". Manual nil is deliberately unclassified.
     var genreSource: String? = nil
+    var pageCount: Int? = nil
+    var pageCountSource: BookPageSource? = nil
+    var pageCountEditionKey: String? = nil
     var size: Int64
     var addedAt: Date
     var lastOpenedAt: Date?

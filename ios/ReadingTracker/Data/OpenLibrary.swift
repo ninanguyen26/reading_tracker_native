@@ -55,10 +55,11 @@ struct OpenLibraryRecord: Decodable, Identifiable {
     var publishers: [String]
     var publishDate: String?
     var workKeys: [String]
+    var numberOfPages: Int?
     var id: String { key }
 
     private enum CodingKeys: String, CodingKey {
-        case key, title, description, subjects, series, languages, publishers, publish_date, works
+        case key, title, description, subjects, series, languages, publishers, publish_date, works, number_of_pages
     }
     private struct TextValue: Decodable { var value: String }
     private struct Reference: Decodable { var key: String }
@@ -77,6 +78,7 @@ struct OpenLibraryRecord: Decodable, Identifiable {
         publishers = (try? c.decode([String].self, forKey: .publishers)) ?? []
         publishDate = try? c.decode(String.self, forKey: .publish_date)
         workKeys = ((try? c.decode([Reference].self, forKey: .works)) ?? []).map(\.key)
+        numberOfPages = try? c.decode(Int.self, forKey: .number_of_pages)
     }
 }
 
@@ -94,8 +96,9 @@ struct OpenLibraryMetadata {
     var subjects: [String]
     var languages: [String]
     private var sources: [OpenLibraryField: String] = [:]
+    var exactEditionPages: BookPageCount? = nil
 
-    init(work: OpenLibraryRecord, edition: OpenLibraryRecord?) {
+    init(work: OpenLibraryRecord, edition: OpenLibraryRecord?, exactEdition: Bool = false) {
         workKey = work.key
         editionKey = edition?.key
         description = BookDetailsText.description(edition?.description) ?? BookDetailsText.description(work.description)
@@ -108,6 +111,9 @@ struct OpenLibraryMetadata {
         sources[.series] = edition?.series.isEmpty == false ? edition?.key : work.key
         sources[.subjects] = edition?.subjects.isEmpty == false ? edition?.key : work.key
         sources[.languages] = edition?.key
+        if exactEdition, let edition, let count = edition.numberOfPages, count > 0 {
+            exactEditionPages = BookPageCount(count: count, source: .openLibrary, editionKey: edition.key)
+        }
     }
 
     func availableFields(for book: Book) -> [OpenLibraryField] {
@@ -132,6 +138,12 @@ struct OpenLibraryMetadata {
 
     func filling(_ original: Book, fields: Set<OpenLibraryField>) -> Book {
         var book = original
+        if book.format == .epub, let pages = exactEditionPages,
+           book.pageCountSource == nil || book.pageCountSource == .estimated || book.pageCountSource == .openLibrary {
+            book.pageCount = pages.count
+            book.pageCountSource = pages.source
+            book.pageCountEditionKey = pages.editionKey
+        }
         let additions = Set(availableFields(for: original)).intersection(fields)
         guard !additions.isEmpty else { return book }
         if additions.contains(.description) { book.description = description }
@@ -174,6 +186,10 @@ enum OpenLibraryError: LocalizedError {
 
 protocol OpenLibraryEnriching: Sendable {
     func metadata(for book: Book) async throws -> OpenLibraryMetadata?
+    func exactEditionPages(for book: Book) async throws -> BookPageCount?
+}
+extension OpenLibraryEnriching {
+    func exactEditionPages(for book: Book) async throws -> BookPageCount? { nil }
 }
 
 /// Requests follow imports or manual lookups. One per second, bounded caching,
@@ -224,7 +240,7 @@ actor OpenLibraryClient: OpenLibraryEnriching {
                 guard Self.validKey(edition.key, kind: "books", suffix: "M"),
                       let workKey = edition.workKeys.first,
                       Self.validKey(workKey, kind: "works", suffix: "W") else { return nil }
-                return OpenLibraryMetadata(work: try await work(workKey), edition: edition)
+                return OpenLibraryMetadata(work: try await work(workKey), edition: edition, exactEdition: true)
             } catch OpenLibraryError.notFound {
                 // Unknown ISBNs can still have a reliable title-and-author match.
             }
@@ -245,6 +261,18 @@ actor OpenLibraryClient: OpenLibraryEnriching {
     private static func matchText(_ value: String) -> String {
         value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
             .components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    func exactEditionPages(for book: Book) async throws -> BookPageCount? {
+        let url: URL
+        if let isbn = OpenLibraryISBN.normalize(book.isbn) {
+            url = URL(string: "https://openlibrary.org/isbn/\(isbn).json")!
+        } else if let key = book.openLibraryEditionKey, Self.validKey(key, kind: "books", suffix: "M") {
+            url = URL(string: "https://openlibrary.org\(key).json")!
+        } else { return nil }
+        let edition: OpenLibraryRecord = try await fetch(url)
+        guard Self.validKey(edition.key, kind: "books", suffix: "M"), let count = edition.numberOfPages, count > 0 else { return nil }
+        return BookPageCount(count: count, source: .openLibrary, editionKey: edition.key)
     }
 
     func work(_ key: String) async throws -> OpenLibraryRecord {
@@ -297,7 +325,7 @@ final class OpenLibraryFixtureProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "openlibrary.org" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        let json: String
+        var json: String
         switch request.url!.path {
         case "/search.json":
             json = #"{"docs":[{"key":"/works/OL1W","title":"Field Notes","author_name":["Jordan Lee"],"first_publish_year":2020}]}"#
@@ -305,6 +333,10 @@ final class OpenLibraryFixtureProtocol: URLProtocol {
             json = #"{"entries":[{"key":"/books/OL1M","title":"Field Notes","publish_date":"2020","publishers":["Test Press"],"languages":[{"key":"/languages/eng"}],"series":["Nature Journals"]}]}"#
         default:
             json = #"{"key":"/works/OL1W","description":"Observations from the natural world.","subjects":["Nature","Journals"],"series":["Nature Journals"]}"#
+        }
+        if ProcessInfo.processInfo.arguments.contains("-long-description-fixture"), request.url!.path == "/works/OL1W.json" {
+            let synopsis = String(repeating: "A naturalist records the changing seasons and the creatures living along the coast. ", count: 12) + "The final chapter follows the returning birds."
+            json = String(data: try! JSONSerialization.data(withJSONObject: ["key": "/works/OL1W", "description": synopsis, "subjects": ["Nature", "Journals"], "series": ["Nature Journals"]]), encoding: .utf8)!
         }
         let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)

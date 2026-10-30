@@ -1,6 +1,37 @@
 import XCTest
 
 final class OpenLibraryUITests: XCTestCase {
+    func testPDFPagesHiddenSubjectsAndInlineReadMore() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-reset-library", "-import-samples", "-open-library-fixtures", "-long-description-fixture"]
+        app.launch()
+        let book = app.descendants(matching: .any)["book-Field Notes"].firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 15))
+        book.press(forDuration: 1)
+        app.buttons["Book Details"].tap()
+        let more = app.links["Read More"]
+        XCTAssertTrue(more.waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["Read More"].exists)
+        XCTAssertFalse(app.staticTexts["Subjects"].exists)
+        let collapsed = XCTAttachment(screenshot: app.screenshot())
+        collapsed.name = "Inline Read More and Pages"
+        collapsed.lifetime = .keepAlways
+        add(collapsed)
+        more.tap()
+        XCTAssertTrue(app.staticTexts["details-description"].label.contains("The final chapter follows the returning birds."))
+        app.swipeUp()
+        app.links["Show Less"].tap()
+        app.swipeUp()
+        let pages = app.descendants(matching: .any)["details-pages"].firstMatch
+        XCTAssertTrue(pages.exists)
+        XCTAssertTrue(pages.label.contains("6"))
+        XCTAssertFalse(pages.label.contains("estimated"))
+        let details = XCTAttachment(screenshot: app.screenshot())
+        details.name = "PDF Actual Pages"
+        details.lifetime = .keepAlways
+        add(details)
+    }
+
     func testAutomaticGenreManualCorrectionAndUnclassifiedPersist() {
         let app = XCUIApplication()
         app.launchArguments = ["-reset-library", "-import-samples", "-open-library-fixtures"]

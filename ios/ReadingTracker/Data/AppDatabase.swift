@@ -77,6 +77,13 @@ final class AppDatabase: Sendable {
                 t.add(column: "genreSource", .text)
             }
         }
+        migrator.registerMigration("v7-page-counts") { db in
+            try db.alter(table: "book") { t in
+                t.add(column: "pageCount", .integer)
+                t.add(column: "pageCountSource", .text)
+                t.add(column: "pageCountEditionKey", .text)
+            }
+        }
         return migrator
     }
 

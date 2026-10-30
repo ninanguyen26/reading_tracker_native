@@ -25,6 +25,7 @@ final class BookImporter {
     private let openLibrary: (any OpenLibraryEnriching)?
     private let classifier: BookGenreClassifier?
     private var enrichments: [String: Task<Void, Never>] = [:]
+    private var pageTasks: [String: Task<Void, Never>] = [:]
 
     static let coverSize = CGSize(width: 600, height: 900)
 
@@ -69,6 +70,9 @@ final class BookImporter {
                 coverFileName = "\(id)-cover.jpg"
                 try data.write(to: storage.url(for: coverFileName!))
             }
+            let initialPages = format == .pdf
+                ? PDFDocument(url: destination).map { BookPageCount(count: $0.pageCount, source: .pdf) }
+                : BookPageCounter.embedded(publication)
             let book = Book(
                 id: id,
                 title: Self.clean(metadata.title) ?? Self.title(fromFileName: name),
@@ -84,6 +88,8 @@ final class BookImporter {
                 subjects: pdfMetadata?.subjects ?? metadata.subjects.compactMap { Self.clean($0.name) },
                 languages: pdfMetadata?.languages ?? metadata.languages.compactMap { Self.clean($0) },
                 isbn: OpenLibraryISBN.normalize(metadata.identifier),
+                pageCount: initialPages?.count,
+                pageCountSource: initialPages?.source,
                 size: Self.fileSize(of: destination),
                 addedAt: Date(),
                 lastOpenedAt: nil,
@@ -91,6 +97,7 @@ final class BookImporter {
                 progression: 0
             )
             try await database.insert(book)
+            Task { await updatePageCount(for: book, publication: publication) }
             enrichAfterImport(book)
             return book
         } catch {
@@ -103,6 +110,7 @@ final class BookImporter {
 
     func delete(_ book: Book) async throws {
         enrichments.removeValue(forKey: book.id)?.cancel()
+        pageTasks.removeValue(forKey: book.id)?.cancel()
         try await database.deleteBook(id: book.id)
         storage.removeFiles(of: book)
     }
@@ -120,7 +128,8 @@ final class BookImporter {
                                                        inputSignature: GenreInput(book: book).signature)
             }
             if let openLibrary, BookDetailsText.description(book.description) == nil ||
-                    book.series.isEmpty || book.subjects.isEmpty || book.languages.isEmpty {
+                    book.series.isEmpty || book.subjects.isEmpty || book.languages.isEmpty ||
+                    (book.format == .epub && book.pageCountSource == nil) {
                 do {
                     if let metadata = try await openLibrary.metadata(for: book) {
                         try Task.checkCancellation()
@@ -130,12 +139,47 @@ final class BookImporter {
                 } catch { /* Keep the local import even if lookup fails. */ }
             }
             guard !Task.isCancelled else { return }
+            await updateCatalogPages(id: book.id)
             // Always run after enrichment (or its failure), including fully embedded imports.
             await classifier?.classifyBook(id: book.id, database: database)
         }
     }
 
     func waitForMetadata(bookID: String) async { await enrichments[bookID]?.value }
+
+    func updatePageCount(for book: Book, publication: Publication? = nil) async {
+        if let task = pageTasks[book.id] { await task.value; return }
+        if book.pageCountSource == .pdf || book.pageCountSource == .embedded { return }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { pageTasks[book.id] = nil }
+            if book.pageCountSource == nil {
+                do {
+                    let url = storage.url(for: book.fileName)
+                    let pub: Publication
+                    if let publication { pub = publication } else { pub = try await readium.openPublication(at: url) }
+                    if book.isbn == nil, let isbn = OpenLibraryISBN.normalize(pub.metadata.identifier) {
+                        try await database.saveEmbeddedISBN(id: book.id, isbn: isbn)
+                    }
+                    if let count = try await BookPageCounter.measure(publication: pub, format: book.format, url: url) {
+                        try Task.checkCancellation()
+                        try await database.savePageCount(id: book.id, measurement: count)
+                    }
+                } catch { /* Keep a known count; never invent one from an unreadable file. */ }
+            }
+            if enrichments[book.id] == nil { await updateCatalogPages(id: book.id) }
+        }
+        pageTasks[book.id] = task
+        await task.value
+    }
+
+    private func updateCatalogPages(id: String) async {
+        guard let openLibrary, !Task.isCancelled,
+              let book = try? await database.book(id: id), book.format == .epub,
+              book.pageCountSource == nil || book.pageCountSource == .estimated,
+              let count = try? await openLibrary.exactEditionPages(for: book), !Task.isCancelled else { return }
+        try? await database.savePageCount(id: id, measurement: count)
+    }
 
     // MARK: Helpers
 
