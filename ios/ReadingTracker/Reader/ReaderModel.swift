@@ -30,6 +30,7 @@ final class ReaderModel: ObservableObject {
     @Published private(set) var bookmarks: [Bookmark] = []
     @Published private(set) var search = BookSearch()
     @Published var highlights: [Highlight] = []
+    @Published var highlightPalette: HighlightPalette = HighlightPaletteStore.load()
     /// The highlight open in the editor sheet; `focusNote` puts the cursor in the note.
     @Published var editing: (id: String, focusNote: Bool)?
     /// Whether the system is in dark mode, for the "Auto" theme.
@@ -53,6 +54,15 @@ final class ReaderModel: ObservableObject {
         self.book = book
         self.environment = environment
         settings = ReaderSettingsStore.load()
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(paletteDidChange),
+            name: .highlightPaletteDidChange, object: nil
+        )
+    }
+
+    @objc private func paletteDidChange() {
+        highlightPalette = HighlightPaletteStore.load()
+        drawHighlights()
     }
 
     var palette: ReaderSettings.Palette { settings.palette(systemDark: systemDark) }

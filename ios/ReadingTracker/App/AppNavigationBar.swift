@@ -128,12 +128,42 @@ struct LibraryStatsView: View {
 struct AppSettingsView: View {
     @State private var settings = ReaderSettingsStore.load()
     @State private var showingPreferences = false
+    @State private var activePalette = HighlightPaletteStore.load()
 
     var body: some View {
         List {
             Section("Reading") {
                 Button { showingPreferences = true } label: {
                     Label("Reading Preferences", systemImage: "textformat.size")
+                }
+            }
+            .listRowBackground(AppPalette.surface)
+            Section("Highlight Colors") {
+                ForEach(HighlightPalette.all) { palette in
+                    Button {
+                        activePalette = palette
+                        HighlightPaletteStore.save(palette)
+                    } label: {
+                        HStack(spacing: 12) {
+                            HStack(spacing: 5) {
+                                ForEach([palette.colors.0, palette.colors.1, palette.colors.2,
+                                         palette.colors.3, palette.colors.4], id: \.self) { hex in
+                                    Circle()
+                                        .fill(Color(hex: hex))
+                                        .frame(width: 22, height: 22)
+                                }
+                            }
+                            Text(palette.name)
+                                .foregroundStyle(AppPalette.text)
+                            Spacer()
+                            if activePalette == palette {
+                                Image(systemName: "checkmark")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(AppPalette.accent)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .listRowBackground(AppPalette.surface)
@@ -147,7 +177,10 @@ struct AppSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(AppPalette.background)
         .foregroundStyle(AppPalette.text)
-        .onAppear { settings = ReaderSettingsStore.load() }
+        .onAppear {
+            settings = ReaderSettingsStore.load()
+            activePalette = HighlightPaletteStore.load()
+        }
         .sheet(isPresented: $showingPreferences) {
             ReaderSettingsSheet(settings: $settings, format: .epub)
         }

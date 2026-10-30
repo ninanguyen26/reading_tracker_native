@@ -7,19 +7,16 @@ struct Highlight: Codable, Identifiable, Hashable, Sendable, FetchableRecord, Pe
     static let databaseTableName = "highlight"
 
     enum Color: String, Codable, CaseIterable, Identifiable, Sendable, DatabaseValueConvertible {
-        case yellow, green, blue, pink
+        case yellow, green, blue, pink, purple
         var id: String { rawValue }
         var label: String { rawValue.capitalized }
 
-        /// Same colors as the web app.
-        var uiColor: UIColor {
-            switch self {
-            case .yellow: UIColor(red: 0.98, green: 0.80, blue: 0.08, alpha: 1)
-            case .green: UIColor(red: 0.29, green: 0.87, blue: 0.50, alpha: 1)
-            case .blue: UIColor(red: 0.38, green: 0.65, blue: 0.98, alpha: 1)
-            case .pink: UIColor(red: 0.96, green: 0.45, blue: 0.71, alpha: 1)
-            }
+        func uiColor(in palette: HighlightPalette) -> UIColor {
+            palette.uiColor(for: self)
         }
+
+        /// Convenience using the globally saved palette.
+        var uiColor: UIColor { uiColor(in: HighlightPaletteStore.load()) }
     }
 
     /// Where a PDF highlight sits: a rectangle on a page, in PDF page coordinates.

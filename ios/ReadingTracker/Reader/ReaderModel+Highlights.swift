@@ -105,7 +105,7 @@ extension ReaderModel {
         if let decorable = navigator as? DecorableNavigator {
             let decorations = highlights.compactMap { highlight -> Decoration? in
                 guard let locator = try? Locator(jsonString: highlight.locator) else { return nil }
-                return Decoration(id: highlight.id, locator: locator, style: .highlight(tint: highlight.color.uiColor))
+                return Decoration(id: highlight.id, locator: locator, style: .highlight(tint: highlight.color.uiColor(in: highlightPalette)))
             }
             decorable.apply(decorations: decorations, in: Self.decorationGroup)
         } else {
@@ -123,7 +123,7 @@ extension ReaderModel {
             pdfAnnotations[highlight.id] = highlight.pageRects.compactMap { rect in
                 guard let page = document.page(at: rect.page) else { return nil }
                 let annotation = PDFAnnotation(bounds: rect.rect, forType: .highlight, withProperties: nil)
-                annotation.color = highlight.color.uiColor.withAlphaComponent(0.45)
+                annotation.color = highlight.color.uiColor(in: highlightPalette).withAlphaComponent(0.45)
                 page.addAnnotation(annotation)
                 return annotation
             }

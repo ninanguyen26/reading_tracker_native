@@ -40,6 +40,7 @@
 		86AAA49132B0ADBC3B8C559A /* PDFBookMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3971568268DFE7766415F9AD /* PDFBookMetadata.swift */; };
 		88BFF39AFD82DE6B17AD9345 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CCC47ACD567D5C94E3F7B744 /* GRDB */; };
 		8BB57367EE4D5C4BB0235B68 /* OpenLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B7378156BDF0FF8A0210492 /* OpenLibrary.swift */; };
+		8EB6C6061C1B5057E9DBC76C /* HighlightPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1F5FA4263958D8D91499EB /* HighlightPalette.swift */; };
 		95A278A4C1A823E38B973D2D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9119ADE425338542629C939C /* Assets.xcassets */; };
 		9E545D0E3E67AAD15C03462C /* ReaderSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F5DB0EE19977F35F36D56D /* ReaderSettingsSheet.swift */; };
 		A32A04BCFA336C41E66DE29E /* NavigationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4CC29520B4503F1C55F43A5 /* NavigationSheet.swift */; };
@@ -128,6 +129,7 @@
 		B6BBC66870CACFEC55B01ED1 /* HighlightUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightUITests.swift; sourceTree = "<group>"; };
 		C1695BAA4F5507C78D653B96 /* ReaderHostViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderHostViewController.swift; sourceTree = "<group>"; };
 		C78D8402BBCD90DF94C5B653 /* BookSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSearch.swift; sourceTree = "<group>"; };
+		CF1F5FA4263958D8D91499EB /* HighlightPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightPalette.swift; sourceTree = "<group>"; };
 		D0D263E85EEF3DBBC7B78949 /* HighlightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightTests.swift; sourceTree = "<group>"; };
 		DF84CE09CB0EBA621C95A8DF /* OpenLibraryLookupScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenLibraryLookupScreen.swift; sourceTree = "<group>"; };
 		E7DB7F2BD5DD26B89BDF7BC5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -253,6 +255,7 @@
 				3F0DD240E37F2EC434B51F8C /* BookPageCount.swift */,
 				230659DBD083A0642D0BE8A4 /* BookStorage.swift */,
 				0D6809709266240D0FF99F38 /* Highlight.swift */,
+				CF1F5FA4263958D8D91499EB /* HighlightPalette.swift */,
 				215508E02874182C3B6FA957 /* NotesExport.swift */,
 				6B7378156BDF0FF8A0210492 /* OpenLibrary.swift */,
 				3971568268DFE7766415F9AD /* PDFBookMetadata.swift */,
@@ -459,6 +462,7 @@
 				0F4113F4F241F8086C91F514 /* BookStorage.swift in Sources */,
 				7B8DAF3E2B3F872BAECFF8C4 /* Bookmark.swift in Sources */,
 				F650A1A9FC7CF45401812658 /* Highlight.swift in Sources */,
+				8EB6C6061C1B5057E9DBC76C /* HighlightPalette.swift in Sources */,
 				68B7108628DD6F20A416FF62 /* HighlightSheet.swift in Sources */,
 				EBC9CEA0FADAE6A272B1B4A3 /* LibraryModel.swift in Sources */,
 				6BB5C4AADB25306498D06387 /* LibraryView.swift in Sources */,

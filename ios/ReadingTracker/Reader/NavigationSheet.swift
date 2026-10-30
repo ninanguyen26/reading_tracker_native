@@ -153,7 +153,7 @@ struct NavigationSheet: View {
                                 .padding(.leading, 9)
                                 .overlay(alignment: .leading) {
                                     RoundedRectangle(cornerRadius: 1.5)
-                                        .fill(Color(uiColor: highlight.color.uiColor))
+                                        .fill(Color(uiColor: highlight.color.uiColor(in: model.highlightPalette)))
                                         .frame(width: 3)
                                 }
                             if !highlight.note.isEmpty {

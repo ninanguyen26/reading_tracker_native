@@ -27,7 +27,7 @@ struct HighlightSheet: View {
                         .padding(.leading, 10)
                         .overlay(alignment: .leading) {
                             RoundedRectangle(cornerRadius: 2)
-                                .fill(Color(uiColor: highlight.color.uiColor))
+                                .fill(Color(uiColor: highlight.color.uiColor(in: model.highlightPalette)))
                                 .frame(width: 4)
                         }
                 }
@@ -37,7 +37,7 @@ struct HighlightSheet: View {
                         ForEach(Highlight.Color.allCases) { color in
                             Button { model.setColor(color, of: highlight) } label: {
                                 Circle()
-                                    .fill(Color(uiColor: color.uiColor))
+                                    .fill(Color(uiColor: color.uiColor(in: model.highlightPalette)))
                                     .frame(width: 34, height: 34)
                                     .overlay(Circle().strokeBorder(.primary, lineWidth: highlight.color == color ? 2.5 : 0).padding(-4))
                             }
