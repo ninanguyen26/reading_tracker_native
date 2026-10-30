@@ -33,20 +33,20 @@ struct BookDetailsScreen: View {
                         if !book.author.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                            book.author != "Unknown author" {
                             Text(book.author)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(AppPalette.secondaryText)
                                 .multilineTextAlignment(.center)
                         }
                         Text(book.format.label)
                             .font(.caption.weight(.medium))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
-                            .background(.quaternary, in: Capsule())
+                            .background(AppPalette.secondarySurface, in: Capsule())
                         if let onRead {
                             Button(book.progression > 0 ? "Continue Reading" : "Read Book") {
                                 dismiss()
                                 onRead()
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(AppPrimaryButtonStyle())
                             .padding(.top, 4)
                         }
                     }
@@ -85,6 +85,9 @@ struct BookDetailsScreen: View {
                 .padding(24)
                 .frame(maxWidth: .infinity)
             }
+            .background(AppPalette.background)
+            .foregroundStyle(AppPalette.text)
+            .toolbarBackground(AppPalette.surface, for: .navigationBar)
             .navigationTitle("Book Details")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

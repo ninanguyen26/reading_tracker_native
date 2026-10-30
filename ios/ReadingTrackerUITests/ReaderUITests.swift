@@ -9,9 +9,10 @@ final class ReaderUITests: XCTestCase {
     }
 
     /// Launches the app; `fresh` starts from an empty library with the two sample books added.
-    private func launch(fresh: Bool) -> XCUIApplication {
+    private func launch(fresh: Bool, appearance: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = fresh ? ["-reset-library", "-import-samples"] : []
+        if let appearance { app.launchEnvironment["UITEST_APPEARANCE"] = appearance }
         app.launch()
         return app
     }
@@ -54,6 +55,76 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(book(pdfTitle, in: app).exists)
         XCTAssertTrue(book(epubTitle, in: app).label.contains("by Avery Quinn"))
         XCTAssertTrue(book(epubTitle, in: app).label.contains("New"))
+    }
+
+    func testMainNavigationSearchAndAddBooks() {
+        let app = launch(fresh: true)
+        XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["tab-library"].isSelected)
+        let search = app.textFields["library-search"]
+        XCTAssertTrue(search.exists)
+        XCTAssertLessThan(search.frame.maxY, book(epubTitle, in: app).frame.minY)
+        XCTAssertLessThan(search.frame.minX, app.buttons["Sort"].frame.minX)
+        captureDetails("Library Navigation", in: app)
+        search.tap()
+        search.typeText("Lighthouse\n")
+        XCTAssertTrue(book(epubTitle, in: app).exists)
+        XCTAssertFalse(book(pdfTitle, in: app).exists)
+        app.buttons["Clear Search"].tap()
+
+        app.buttons["tab-home"].tap()
+        XCTAssertTrue(app.navigationBars["Home"].exists)
+        XCTAssertTrue(book(epubTitle, in: app).exists)
+        app.buttons["tab-stats"].tap()
+        XCTAssertTrue(app.navigationBars["Stats"].exists)
+        XCTAssertTrue(app.staticTexts["Your Library"].exists)
+        app.buttons["tab-settings"].tap()
+        XCTAssertTrue(app.buttons["Reading Preferences"].exists)
+        app.buttons["Reading Preferences"].tap()
+        XCTAssertTrue(app.navigationBars["Reading Settings"].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap()
+        app.buttons["Add Books"].tap()
+        XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 5))
+        app.buttons["Cancel"].tap()
+
+        app.buttons["tab-library"].tap()
+        book(epubTitle, in: app).tap()
+        waitForProgress(in: app, matching: "Location 1 of .*")
+        XCTAssertFalse(app.buttons["tab-home"].exists)
+        goBack(in: app)
+        XCTAssertTrue(app.buttons["tab-home"].exists)
+    }
+
+    func testPaletteInLightAndDarkAppearance() {
+        for appearance in ["light", "dark"] {
+            let app = launch(fresh: true, appearance: appearance)
+            XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 15))
+            captureDetails("\(appearance) Library", in: app)
+            book(epubTitle, in: app).press(forDuration: 1)
+            app.buttons["Book Details"].tap()
+            XCTAssertTrue(app.navigationBars["Book Details"].waitForExistence(timeout: 5))
+            captureDetails("\(appearance) Details", in: app)
+            app.buttons["Done"].tap()
+            app.buttons["tab-stats"].tap()
+            XCTAssertTrue(app.navigationBars["Stats"].exists)
+            captureDetails("\(appearance) Stats", in: app)
+            app.buttons["tab-settings"].tap()
+            XCTAssertTrue(app.buttons["Reading Preferences"].exists)
+            captureDetails("\(appearance) Settings", in: app)
+            app.terminate()
+        }
+    }
+
+    func testAddButtonDarkLaunchPresentation() {
+        let app = launch(fresh: true, appearance: "dark")
+        XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 15))
+        captureDetails("dark Add initial", in: app)
+        XCTAssertGreaterThan(app.buttons["Add Books"].frame.width, 44)
+        captureDetails("dark Add settled", in: app)
+        app.buttons["Add Books"].tap()
+        XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 5))
+        app.buttons["Cancel"].tap()
+        captureDetails("dark Add after picker", in: app)
     }
 
     func testBookDetailsShowsAvailableEpubMetadataAndOpensReader() {

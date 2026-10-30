@@ -52,6 +52,11 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
       configs:
+        Debug:
+          DEVELOPMENT_TEAM: "9965C7BUB7"
+          CODE_SIGN_IDENTITY: "Apple Development"
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+          ENABLE_PREVIEWS: YES
         # Sample books used by UI tests ship in debug builds only.
         Release:
           EXCLUDED_SOURCE_FILE_NAMES: DebugFixtures

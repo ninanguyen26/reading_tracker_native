@@ -38,6 +38,8 @@ open ios/ReadingTracker.xcodeproj
 
 Choose an iPhone or iPad simulator and press Run. To try the app with the two sample books, edit the scheme's *Run → Arguments* and add `-reset-library` and `-import-samples` (debug builds only).
 
+For everyday development, use the scheme's **Debug Run** action and SwiftUI previews (including the navigation preview in `AppNavigationBar.swift`). Debug signing is configured for the Apphibian development team. Xcode Run builds incrementally and updates the selected device automatically; archive/export is for distribution, not each UI edit. SwiftUI source changes still need compilation on a physical device; the preview canvas provides the faster layout feedback loop.
+
 The Xcode project is generated from [`ios/project.yml`](ios/project.yml) with [XcodeGen](https://github.com/yonaskolb/XcodeGen). After adding, removing or renaming files:
 
 ```bash

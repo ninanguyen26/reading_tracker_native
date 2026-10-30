@@ -14,7 +14,11 @@ struct ReadingTrackerApp: App {
     var body: some Scene {
         WindowGroup {
             LibraryView(model: library)
+                .tint(AppPalette.accent)
                 .environmentObject(environment)
+                #if DEBUG
+                .preferredColorScheme(testAppearance)
+                #endif
                 // "Open in Reading Tracker" from Files, Mail, Safari or AirDrop.
                 .onOpenURL { url in library.importFiles([url]) }
                 .task {
@@ -26,4 +30,14 @@ struct ReadingTrackerApp: App {
                 }
         }
     }
+
+    #if DEBUG
+    private var testAppearance: ColorScheme? {
+        switch ProcessInfo.processInfo.environment["UITEST_APPEARANCE"] {
+        case "light": .light
+        case "dark": .dark
+        default: nil
+        }
+    }
+    #endif
 }

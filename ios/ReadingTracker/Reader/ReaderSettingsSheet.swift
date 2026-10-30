@@ -21,6 +21,7 @@ struct ReaderSettingsSheet: View {
                     }
                     .padding(.vertical, 4)
                 }
+                .listRowBackground(AppPalette.surface)
 
                 if !isPDF {
                     Section("Text") {
@@ -58,6 +59,7 @@ struct ReaderSettingsSheet: View {
                             ForEach(ReaderSettings.Margins.allCases) { Text($0.label).tag($0) }
                         }
                     }
+                    .listRowBackground(AppPalette.surface)
                 }
 
                 Section {
@@ -73,7 +75,12 @@ struct ReaderSettingsSheet: View {
                         Text("PDFs keep their original layout, so text size and fonts can’t be changed. Pinch to zoom.")
                     }
                 }
+                .listRowBackground(AppPalette.surface)
             }
+            .scrollContentBackground(.hidden)
+            .background(AppPalette.background)
+            .foregroundStyle(AppPalette.text)
+            .toolbarBackground(AppPalette.surface, for: .navigationBar)
             .navigationTitle("Reading Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

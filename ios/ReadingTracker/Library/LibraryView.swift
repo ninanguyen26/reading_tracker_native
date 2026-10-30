@@ -4,6 +4,8 @@ import UniformTypeIdentifiers
 struct LibraryView: View {
     @ObservedObject var model: LibraryModel
     @State private var showingImporter = false
+    @State private var selectedTab: AppTab = .library
+    @FocusState private var searchFocused: Bool
     @State private var bookToDelete: Book?
     @State private var bookToInspect: Book?
     // Navigate by ID: a Book value changes as soon as it's opened (progress,
@@ -14,65 +16,15 @@ struct LibraryView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            Group {
-                if model.loaded && model.books.isEmpty {
-                    EmptyLibraryView { showingImporter = true }
-                } else {
-                    ScrollView {
-                        importStatus
-                        if !model.query.isEmpty && model.visibleBooks.isEmpty {
-                            Text("No books match “\(model.query)”.")
-                                .foregroundStyle(.secondary)
-                                .padding(.top, 40)
-                        }
-                        LazyVGrid(columns: columns, spacing: 28) {
-                            ForEach(model.visibleBooks) { book in
-                                NavigationLink(value: book.id) {
-                                    BookCell(book: book, coverURL: model.coverURL(for: book))
-                                }
-                                .buttonStyle(.plain)
-                                .contextMenu {
-                                    Button {
-                                        bookToInspect = book
-                                    } label: {
-                                        Label("Book Details", systemImage: "info.circle")
-                                    }
-                                    Button(role: .destructive) {
-                                        bookToDelete = book
-                                    } label: {
-                                        Label("Delete Book", systemImage: "trash")
-                                    }
-                                }
-                                .accessibilityAction(named: "Book Details") { bookToInspect = book }
-                            }
-                        }
-                        .padding(.horizontal)
-                        .padding(.bottom, 24)
-                    }
-                    .searchable(text: $model.query, prompt: "Title or author")
-                }
-            }
-            .navigationTitle("Library")
+            rootContent
+            .background(AppPalette.background)
+            .foregroundStyle(AppPalette.text)
+            .toolbarBackground(AppPalette.background, for: .navigationBar)
+            .navigationTitle(selectedTab.title)
             .navigationDestination(for: String.self) { id in
                 if let book = model.books.first(where: { $0.id == id }) {
                     ReaderScreen(book: book, environment: model.environment)
                         .id(id)
-                }
-            }
-            .toolbar {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Menu {
-                        Picker("Sort By", selection: $model.sort) {
-                            ForEach(LibrarySort.allCases) { Text($0.label).tag($0) }
-                        }
-                    } label: {
-                        Label("Sort", systemImage: "arrow.up.arrow.down")
-                    }
-                    .disabled(model.books.isEmpty)
-
-                    Button { showingImporter = true } label: {
-                        Label("Add Books", systemImage: "plus")
-                    }
                 }
             }
             .fileImporter(
@@ -109,6 +61,120 @@ struct LibraryView: View {
                 Text(model.errorMessage ?? "")
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if path.isEmpty {
+                AppNavigationBar(selection: $selectedTab) {
+                    searchFocused = false
+                    showingImporter = true
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var rootContent: some View {
+        switch selectedTab {
+        case .library:
+            VStack(spacing: 0) {
+                librarySearch
+                if model.loaded && model.books.isEmpty {
+                    EmptyLibraryView { showingImporter = true }
+                } else {
+                    ScrollView {
+                        importStatus
+                        if !model.query.isEmpty && model.visibleBooks.isEmpty {
+                            Text("No books match “\(model.query)”.")
+                                .foregroundStyle(AppPalette.secondaryText)
+                                .padding(.top, 40)
+                        }
+                        LazyVGrid(columns: columns, spacing: 28) {
+                            ForEach(model.visibleBooks) { book in bookLink(book) }
+                        }
+                        .padding(.horizontal)
+                        .padding(.bottom, 24)
+                    }
+                    .scrollDismissesKeyboard(.interactively)
+                }
+            }
+        case .home:
+            if model.books.isEmpty {
+                EmptyLibraryView { showingImporter = true }
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        importStatus
+                        Text("Pick up a book")
+                            .font(.system(.title2, design: .serif).weight(.semibold))
+                        Text("Your next chapter is waiting.")
+                            .foregroundStyle(AppPalette.secondaryText)
+                        LazyVGrid(columns: columns, spacing: 28) {
+                            ForEach(Array(model.books.sorted(by: .recent).prefix(4))) { book in bookLink(book) }
+                        }
+                    }
+                    .padding()
+                }
+            }
+        case .stats:
+            LibraryStatsView(books: model.books)
+        case .settings:
+            AppSettingsView()
+        }
+    }
+
+    private var librarySearch: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Title or author", text: $model.query)
+                    .focused($searchFocused)
+                    .autocorrectionDisabled()
+                    .submitLabel(.search)
+                    .onSubmit { searchFocused = false }
+                    .accessibilityIdentifier("library-search")
+                if !model.query.isEmpty {
+                    Button { model.query = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .accessibilityLabel("Clear Search")
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 48)
+            .foregroundStyle(.primary)
+            .modifier(LibraryControlSurface())
+
+            Menu {
+                Picker("Sort By", selection: $model.sort) {
+                    ForEach(LibrarySort.allCases) { Text($0.label).tag($0) }
+                }
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.title3)
+                    .frame(width: 48, height: 48)
+                    .foregroundStyle(.primary)
+                    .modifier(LibraryControlSurface())
+            }
+            .accessibilityLabel("Sort")
+            .disabled(model.books.isEmpty)
+        }
+        .padding(.horizontal)
+        .padding(.top, 4)
+        .padding(.bottom, 18)
+    }
+
+    private func bookLink(_ book: Book) -> some View {
+        NavigationLink(value: book.id) {
+            BookCell(book: book, coverURL: model.coverURL(for: book))
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button { bookToInspect = book } label: {
+                Label("Book Details", systemImage: "info.circle")
+            }
+            Button(role: .destructive) { bookToDelete = book } label: {
+                Label("Delete Book", systemImage: "trash")
+            }
+        }
+        .accessibilityAction(named: "Book Details") { bookToInspect = book }
     }
 
     @ViewBuilder private var importStatus: some View {
@@ -117,9 +183,20 @@ struct LibraryView: View {
                 ProgressView()
                 Text(model.importing.count == 1 ? "Adding \(model.importing[0])…" : "Adding \(model.importing.count) books…")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppPalette.secondaryText)
             }
             .padding(.vertical, 8)
+        }
+    }
+}
+
+/// Keep the original system glass/pill treatment after moving the controls.
+private struct LibraryControlSurface: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular, in: Capsule())
+        } else {
+            content.background(.regularMaterial, in: Capsule())
         }
     }
 }
@@ -152,14 +229,14 @@ private struct BookCell: View {
                 .multilineTextAlignment(.leading)
             Text(book.author)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppPalette.secondaryText)
                 .lineLimit(1)
             HStack(spacing: 6) {
                 ProgressView(value: book.progression)
-                    .tint(.accentColor)
+                    .tint(AppPalette.accent)
                 Text(progressLabel)
                     .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppPalette.secondaryText)
             }
         }
         .contentShape(Rectangle())
@@ -177,19 +254,19 @@ private struct EmptyLibraryView: View {
         VStack(spacing: 14) {
             Image(systemName: "books.vertical")
                 .font(.system(size: 52))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppPalette.secondaryText)
             Text("Your library is empty")
                 .font(.system(.title2, design: .serif).weight(.semibold))
             Text("Add EPUB or PDF books from Files, or open one from another app with “Open in Reading Tracker”.")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppPalette.secondaryText)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 320)
             Button(action: onAdd) {
                 Label("Add Books", systemImage: "plus")
                     .padding(.horizontal, 8)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(AppPrimaryButtonStyle())
             .padding(.top, 6)
         }
         .padding()

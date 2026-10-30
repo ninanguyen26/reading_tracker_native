@@ -5,12 +5,8 @@ struct BookCoverView: View {
     let book: Book
     let coverURL: URL?
 
-    // Muted colors, picked from the title so each book keeps its color.
-    private static let palette: [Color] = [
-        Color(red: 0.29, green: 0.36, blue: 0.40), Color(red: 0.48, green: 0.36, blue: 0.35),
-        Color(red: 0.36, green: 0.43, blue: 0.31), Color(red: 0.42, green: 0.35, blue: 0.48),
-        Color(red: 0.54, green: 0.43, blue: 0.23), Color(red: 0.25, green: 0.37, blue: 0.50),
-    ]
+    // Match the app's categorical hues; soft fills keep text readable in both appearances.
+    private static let palette = AppPalette.chartColors
 
     private var placeholderColor: Color {
         let hash = book.title.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0x7fffffff }
@@ -38,14 +34,14 @@ struct BookCoverView: View {
                             .opacity(0.8)
                             .lineLimit(2)
                     }
-                    .foregroundStyle(.white)
+                    .foregroundStyle(AppPalette.text)
                     .padding(10)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .background(placeholderColor)
+                    .background(placeholderColor.opacity(0.18))
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(.black.opacity(0.08)))
+            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(AppPalette.border.opacity(0.6)))
             .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
             .accessibilityHidden(true)
     }
