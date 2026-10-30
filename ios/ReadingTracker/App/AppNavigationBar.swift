@@ -97,14 +97,14 @@ struct LibraryStatsView: View {
     var body: some View {
         List {
             Section("Your Library") {
-                stat("Books", count: books.count, color: .violet)
+                stat("Books", count: books.count, color: .forest)
                 stat("In Progress", count: books.filter { $0.progression > 0 && $0.progression < 0.995 }.count, color: .teal)
                 stat("Finished", count: books.filter { $0.progression >= 0.995 }.count, color: .olive)
-                stat("Not Started", count: books.filter { $0.progression == 0 }.count, color: .blue)
+                stat("Not Started", count: books.filter { $0.progression == 0 }.count, color: .slateBlue)
             }
             .listRowBackground(AppPalette.surface)
             Section("Formats") {
-                stat("EPUB", count: books.filter { $0.format == .epub }.count, color: .violet)
+                stat("EPUB", count: books.filter { $0.format == .epub }.count, color: .forest)
                 stat("PDF", count: books.filter { $0.format == .pdf }.count, color: .teal)
             }
             .listRowBackground(AppPalette.surface)

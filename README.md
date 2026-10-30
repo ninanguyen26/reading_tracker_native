@@ -40,6 +40,19 @@ Choose an iPhone or iPad simulator and press Run. To try the app with the two sa
 
 For everyday development, use the scheme's **Debug Run** action and SwiftUI previews (including the navigation preview in `AppNavigationBar.swift`). Debug signing is configured for the Apphibian development team. Xcode Run builds incrementally and updates the selected device automatically; archive/export is for distribution, not each UI edit. SwiftUI source changes still need compilation on a physical device; the preview canvas provides the faster layout feedback loop.
 
+To build and open the latest changes on Ngoc's connected iPhone in one command:
+
+```bash
+bash scripts/run-ios-device.sh
+```
+
+This reuses `/private/tmp/ReadingTracker-Debug-build`, updates the installed app
+without deleting its data, and launches it automatically. Keep the phone connected
+and unlocked. Override `READING_TRACKER_DEVICE_ID` for another device, or
+`READING_TRACKER_DERIVED_DATA` for a different build-cache location. Build output
+is saved as `device-build.log` in that cache. Signing still requires an unlocked
+signing keychain; no passwords are stored by the script.
+
 The Xcode project is generated from [`ios/project.yml`](ios/project.yml) with [XcodeGen](https://github.com/yonaskolb/XcodeGen). After adding, removing or renaming files:
 
 ```bash
