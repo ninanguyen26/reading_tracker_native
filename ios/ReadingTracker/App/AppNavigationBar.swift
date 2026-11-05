@@ -129,6 +129,7 @@ struct AppSettingsView: View {
     @State private var settings = ReaderSettingsStore.load()
     @State private var showingPreferences = false
     @State private var activePalette = HighlightPaletteStore.load()
+    @State private var paletteExpanded = false
 
     var body: some View {
         List {
@@ -139,32 +140,49 @@ struct AppSettingsView: View {
             }
             .listRowBackground(AppPalette.surface)
             Section("Highlight Colors") {
-                ForEach(HighlightPalette.all) { palette in
-                    Button {
-                        activePalette = palette
-                        HighlightPaletteStore.save(palette)
-                    } label: {
-                        HStack(spacing: 12) {
-                            HStack(spacing: 5) {
-                                ForEach([palette.colors.0, palette.colors.1, palette.colors.2,
-                                         palette.colors.3, palette.colors.4], id: \.self) { hex in
-                                    Circle()
-                                        .fill(Color(hex: hex))
-                                        .frame(width: 22, height: 22)
+                DisclosureGroup(isExpanded: $paletteExpanded) {
+                    ForEach(HighlightPalette.all) { palette in
+                        Button {
+                            activePalette = palette
+                            HighlightPaletteStore.save(palette)
+                            paletteExpanded = false
+                        } label: {
+                            HStack(spacing: 12) {
+                                HStack(spacing: 5) {
+                                    ForEach([palette.colors.0, palette.colors.1, palette.colors.2,
+                                             palette.colors.3, palette.colors.4], id: \.self) { hex in
+                                        Circle()
+                                            .fill(Color(hex: hex))
+                                            .frame(width: 20, height: 20)
+                                    }
+                                }
+                                Text(palette.name)
+                                    .foregroundStyle(AppPalette.text)
+                                Spacer()
+                                if activePalette == palette {
+                                    Image(systemName: "checkmark")
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(AppPalette.accent)
                                 }
                             }
-                            Text(palette.name)
-                                .foregroundStyle(AppPalette.text)
-                            Spacer()
-                            if activePalette == palette {
-                                Image(systemName: "checkmark")
-                                    .font(.body.weight(.semibold))
-                                    .foregroundStyle(AppPalette.accent)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        HStack(spacing: 5) {
+                            ForEach([activePalette.colors.0, activePalette.colors.1, activePalette.colors.2,
+                                     activePalette.colors.3, activePalette.colors.4], id: \.self) { hex in
+                                Circle()
+                                    .fill(Color(hex: hex))
+                                    .frame(width: 20, height: 20)
                             }
                         }
+                        Text(activePalette.name)
+                            .foregroundStyle(AppPalette.text)
                     }
-                    .buttonStyle(.plain)
                 }
+                .tint(AppPalette.accent)
             }
             .listRowBackground(AppPalette.surface)
             Section("About") {
