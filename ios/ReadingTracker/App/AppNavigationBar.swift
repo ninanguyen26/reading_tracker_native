@@ -128,11 +128,7 @@ struct LibraryStatsView: View {
 struct AppSettingsView: View {
     @State private var settings = ReaderSettingsStore.load()
     @State private var showingPreferences = false
-    @State private var activePaletteId = HighlightPaletteStore.load().id
-
-    private var activePalette: HighlightPalette {
-        HighlightPalette.all.first { $0.id == activePaletteId } ?? .gardenParty
-    }
+    @State private var activePalette = HighlightPaletteStore.load()
 
     var body: some View {
         List {
@@ -143,26 +139,31 @@ struct AppSettingsView: View {
             }
             .listRowBackground(AppPalette.surface)
             Section("Highlight Colors") {
-                HStack(spacing: 12) {
-                    HStack(spacing: 5) {
-                        ForEach([activePalette.colors.0, activePalette.colors.1, activePalette.colors.2,
-                                 activePalette.colors.3, activePalette.colors.4], id: \.self) { hex in
-                            Circle()
-                                .fill(Color(hex: hex))
-                                .frame(width: 20, height: 20)
+                ForEach(HighlightPalette.all) { palette in
+                    Button {
+                        activePalette = palette
+                        HighlightPaletteStore.save(palette)
+                    } label: {
+                        HStack(spacing: 12) {
+                            HStack(spacing: 5) {
+                                ForEach([palette.colors.0, palette.colors.1, palette.colors.2,
+                                         palette.colors.3, palette.colors.4], id: \.self) { hex in
+                                    Circle()
+                                        .fill(Color(hex: hex))
+                                        .frame(width: 22, height: 22)
+                                }
+                            }
+                            Text(palette.name)
+                                .foregroundStyle(AppPalette.text)
+                            Spacer()
+                            if activePalette == palette {
+                                Image(systemName: "checkmark")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(AppPalette.accent)
+                            }
                         }
                     }
-                    Picker("Palette", selection: $activePaletteId) {
-                        ForEach(HighlightPalette.all) { palette in
-                            Text(palette.name).tag(palette.id)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .onChange(of: activePaletteId) { id in
-                        if let palette = HighlightPalette.all.first(where: { $0.id == id }) {
-                            HighlightPaletteStore.save(palette)
-                        }
-                    }
+                    .buttonStyle(.plain)
                 }
             }
             .listRowBackground(AppPalette.surface)
@@ -178,7 +179,7 @@ struct AppSettingsView: View {
         .foregroundStyle(AppPalette.text)
         .onAppear {
             settings = ReaderSettingsStore.load()
-            activePaletteId = HighlightPaletteStore.load().id
+            activePalette = HighlightPaletteStore.load()
         }
         .sheet(isPresented: $showingPreferences) {
             ReaderSettingsSheet(settings: $settings, format: .epub)
