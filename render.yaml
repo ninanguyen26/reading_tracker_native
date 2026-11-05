@@ -7,3 +7,6 @@ services:
     buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /health
+    envVars:
+      - key: HARDCOVER_TOKEN
+        sync: false
