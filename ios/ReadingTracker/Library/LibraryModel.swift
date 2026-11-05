@@ -70,14 +70,14 @@ final class LibraryModel: ObservableObject {
         selectedShelfId = shelf?.id
     }
 
-    /// Creates a shelf. From the shelf bar it opens the new shelf; from a book's menu it adds that book.
-    func createShelf(named name: String, adding book: Book? = nil) {
+    /// Creates a shelf. With no books (the shelf bar) it opens the new shelf; otherwise it adds them to it.
+    func createShelf(named name: String, adding books: [Book] = []) {
         runShelfChange { database in
             guard let shelf = try await database.createShelf(named: name) else { return }
-            if let book {
-                try await database.setBook(id: book.id, onShelf: shelf.id, true)
-            } else {
+            if books.isEmpty {
                 self.select(shelf)
+            } else {
+                try await database.setBooks(ids: books.map(\.id), onShelf: shelf.id, true)
             }
         }
     }
@@ -94,6 +94,14 @@ final class LibraryModel: ObservableObject {
     func toggle(_ book: Book, on shelf: Shelf) {
         let onShelf = !shelfList.isBook(book.id, on: shelf.id)
         runShelfChange { try await $0.setBook(id: book.id, onShelf: shelf.id, onShelf) }
+    }
+
+    func add(_ books: [Book], to shelf: Shelf) {
+        runShelfChange { try await $0.setBooks(ids: books.map(\.id), onShelf: shelf.id, true) }
+    }
+
+    func remove(_ books: [Book], from shelf: Shelf) {
+        runShelfChange { try await $0.setBooks(ids: books.map(\.id), onShelf: shelf.id, false) }
     }
 
     private func runShelfChange(_ change: @escaping (AppDatabase) async throws -> Void) {
@@ -129,12 +137,20 @@ final class LibraryModel: ObservableObject {
     }
 
     func delete(_ book: Book) {
+        delete([book])
+    }
+
+    func delete(_ books: [Book]) {
         Task {
-            do {
-                try await environment.importer.delete(book)
-            } catch {
-                errorMessage = "“\(book.title)” couldn’t be deleted. \(error.localizedDescription)"
+            var failures: [String] = []
+            for book in books {
+                do {
+                    try await environment.importer.delete(book)
+                } catch {
+                    failures.append("“\(book.title)” couldn’t be deleted. \(error.localizedDescription)")
+                }
             }
+            if !failures.isEmpty { errorMessage = failures.joined(separator: "\n") }
         }
     }
 }

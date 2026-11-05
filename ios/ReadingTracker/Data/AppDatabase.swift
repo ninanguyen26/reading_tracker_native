@@ -228,12 +228,19 @@ final class AppDatabase: Sendable {
     }
 
     func setBook(id bookId: String, onShelf shelfId: String, _ onShelf: Bool) async throws {
-        let entry = BookShelf(bookId: bookId, shelfId: shelfId)
+        try await setBooks(ids: [bookId], onShelf: shelfId, onShelf)
+    }
+
+    /// Adds books to a shelf or takes them off it, all or none.
+    func setBooks(ids bookIds: [String], onShelf shelfId: String, _ onShelf: Bool) async throws {
         try await writer.write { db in
-            if onShelf {
-                try entry.insert(db, onConflict: .ignore)
-            } else {
-                try entry.delete(db)
+            for bookId in bookIds {
+                let entry = BookShelf(bookId: bookId, shelfId: shelfId)
+                if onShelf {
+                    try entry.insert(db, onConflict: .ignore)
+                } else {
+                    try entry.delete(db)
+                }
             }
         }
     }

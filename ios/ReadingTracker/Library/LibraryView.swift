@@ -11,12 +11,15 @@ struct LibraryView: View {
     @State private var shelfToDelete: Shelf?
     @State private var shelfNaming: ShelfNaming?
     @State private var shelfName = ""
+    @State private var selecting = false
+    @State private var selectedBookIds: Set<String> = []
+    @State private var confirmingBulkDelete = false
     // Navigate by ID: a Book value changes as soon as it's opened (progress,
     // last-opened date), which SwiftUI would treat as a different destination.
     @State private var path: [String] = []
 
     private enum ShelfNaming {
-        case create(adding: Book?)
+        case create(adding: [Book])
         case rename(Shelf)
 
         var title: String {
@@ -42,17 +45,40 @@ struct LibraryView: View {
                 rootContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
-                AppNavigationBar(selection: $selectedTab) {
-                    searchFocused = false
-                    showingImporter = true
+                if selecting {
+                    selectionBar
+                } else {
+                    AppNavigationBar(selection: $selectedTab) {
+                        searchFocused = false
+                        showingImporter = true
+                    }
                 }
             }
             .background(AppPalette.background)
             .foregroundStyle(AppPalette.text)
             .toolbarBackground(AppPalette.background, for: .navigationBar)
-            .navigationTitle(selectedTab.title)
+            .navigationTitle(selecting ? "\(selectedBooks.count) Selected" : selectedTab.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(selectedTab == .home ? .hidden : .visible, for: .navigationBar)
+            .toolbar {
+                if selectedTab == .library && !model.books.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(selecting ? "Done" : "Select") {
+                            searchFocused = false
+                            selectedBookIds = []
+                            selecting.toggle()
+                        }
+                    }
+                }
+                if selecting {
+                    ToolbarItem(placement: .topBarLeading) {
+                        let allSelected = selectedBooks.count == model.visibleBooks.count && !selectedBooks.isEmpty
+                        Button(allSelected ? "Deselect All" : "Select All") {
+                            selectedBookIds = allSelected ? [] : Set(model.visibleBooks.map(\.id))
+                        }
+                    }
+                }
+            }
             .navigationDestination(for: String.self) { id in
                 if let book = model.books.first(where: { $0.id == id }) {
                     ReaderScreen(book: book, environment: model.environment)
@@ -83,6 +109,18 @@ struct LibraryView: View {
                 Button("Delete Book", role: .destructive) { model.delete(book) }
             } message: { _ in
                 Text("The book and your reading position will be removed from this device.")
+            }
+            .confirmationDialog(
+                "Delete \(bookCount(selectedBooks.count))?",
+                isPresented: $confirmingBulkDelete,
+                titleVisibility: .visible
+            ) {
+                Button("Delete \(bookCount(selectedBooks.count))", role: .destructive) {
+                    model.delete(selectedBooks)
+                    endSelecting()
+                }
+            } message: {
+                Text("These books and your reading positions will be removed from this device.")
             }
             .confirmationDialog(
                 "Delete the “\(shelfToDelete?.name ?? "")” shelf?",
@@ -137,7 +175,13 @@ struct LibraryView: View {
                                 .padding(.top, 40)
                         }
                         LazyVGrid(columns: columns, spacing: 28) {
-                            ForEach(model.visibleBooks) { book in bookLink(book) }
+                            ForEach(model.visibleBooks) { book in
+                                if selecting {
+                                    selectableBook(book)
+                                } else {
+                                    bookLink(book)
+                                }
+                            }
                         }
                         .padding(.horizontal)
                         .padding(.bottom, 24)
@@ -226,7 +270,7 @@ struct LibraryView: View {
                             model.select(shelf)
                         }
                     }
-                    Button { nameShelf(.create(adding: nil)) } label: {
+                    Button { nameShelf(.create(adding: [])) } label: {
                         Label("New Shelf", systemImage: "plus")
                             .font(.footnote.weight(.medium))
                             .foregroundStyle(AppPalette.secondaryText)
@@ -288,10 +332,83 @@ struct LibraryView: View {
 
     private func saveShelfName() {
         switch shelfNaming {
-        case .create(let book): model.createShelf(named: shelfName, adding: book)
+        case .create(let books):
+            model.createShelf(named: shelfName, adding: books)
+            if selecting && !books.isEmpty { endSelecting() }
         case .rename(let shelf): model.rename(shelf, to: shelfName)
         case nil: break
         }
+    }
+
+    /// Only books still in view count, so a search or shelf change can't act on books you can't see.
+    private var selectedBooks: [Book] {
+        model.visibleBooks.filter { selectedBookIds.contains($0.id) }
+    }
+
+    private func bookCount(_ count: Int) -> String {
+        count == 1 ? "1 Book" : "\(count) Books"
+    }
+
+    private func endSelecting() {
+        selecting = false
+        selectedBookIds = []
+    }
+
+    private func selectableBook(_ book: Book) -> some View {
+        let selected = selectedBookIds.contains(book.id)
+        return Button {
+            if selected { selectedBookIds.remove(book.id) } else { selectedBookIds.insert(book.id) }
+        } label: {
+            BookCell(book: book, coverURL: model.coverURL(for: book), selected: selected)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Replaces the tab bar while selecting books.
+    private var selectionBar: some View {
+        let books = selectedBooks
+        return HStack(spacing: 0) {
+            Menu {
+                ForEach(model.shelfList.shelves) { shelf in
+                    Button(shelf.name) {
+                        model.add(books, to: shelf)
+                        endSelecting()
+                    }
+                }
+                Button { nameShelf(.create(adding: books)) } label: {
+                    Label("New Shelf…", systemImage: "plus")
+                }
+            } label: {
+                selectionAction("Add to Shelf", systemImage: "books.vertical")
+            }
+            if let shelf = model.activeShelf {
+                Button {
+                    model.remove(books, from: shelf)
+                    endSelecting()
+                } label: {
+                    selectionAction("Remove from Shelf", systemImage: "minus.circle")
+                }
+            }
+            Button(role: .destructive) { confirmingBulkDelete = true } label: {
+                selectionAction("Delete", systemImage: "trash")
+                    .foregroundStyle(AppPalette.error)
+            }
+        }
+        .disabled(books.isEmpty)
+        .opacity(books.isEmpty ? 0.4 : 1)
+        .padding(.vertical, 8)
+        .background(AppPalette.surface, ignoresSafeAreaEdges: .bottom)
+    }
+
+    private func selectionAction(_ title: String, systemImage: String) -> some View {
+        VStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .font(.system(size: 20))
+                .frame(height: 25)
+            Text(title).font(.caption2)
+        }
+        .frame(maxWidth: .infinity, minHeight: 48)
+        .contentShape(Rectangle())
     }
 
     private func bookLink(_ book: Book) -> some View {
@@ -313,7 +430,7 @@ struct LibraryView: View {
                         }
                     }
                 }
-                Button { nameShelf(.create(adding: book)) } label: {
+                Button { nameShelf(.create(adding: [book])) } label: {
                     Label("New Shelf…", systemImage: "plus")
                 }
             } label: {
@@ -353,6 +470,8 @@ private struct LibraryControlSurface: ViewModifier {
 private struct BookCell: View {
     let book: Book
     let coverURL: URL?
+    /// Set while selecting books: whether this one is selected.
+    var selected: Bool?
 
     private var progressLabel: String {
         if book.progression >= 0.995 { return "Done" }
@@ -371,6 +490,15 @@ private struct BookCell: View {
                         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 3))
                         .foregroundStyle(.white)
                         .padding(6)
+                }
+                .overlay(alignment: .topTrailing) {
+                    if let selected {
+                        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                            .font(.title3)
+                            .foregroundStyle(selected ? AppPalette.onAccent : .white, AppPalette.accent)
+                            .background(Circle().fill(selected ? .clear : .black.opacity(0.35)))
+                            .padding(6)
+                    }
                 }
             Text(book.title)
                 .font(.subheadline.weight(.medium))
@@ -391,7 +519,7 @@ private struct BookCell: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(book.title), by \(book.author), \(progressLabel)")
-        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(selected == true ? [.isButton, .isSelected] : .isButton)
         .accessibilityIdentifier("book-\(book.title)")
     }
 }

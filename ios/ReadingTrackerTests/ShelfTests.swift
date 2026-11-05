@@ -70,6 +70,24 @@ final class ShelfTests: XCTestCase {
         XCTAssertEqual(list.books([book], on: favorites.id), [])
     }
 
+    func testAddsAndRemovesSeveralBooksAtOnce() async throws {
+        let book = try await importSample()
+        let created = try await database.createShelf(named: "Favorites")
+        let shelf = try XCTUnwrap(created)
+        try await database.setBook(id: book.id, onShelf: shelf.id, true)
+        let second = try await importSample()
+        XCTAssertNotEqual(book.id, second.id)
+
+        // One of the two is already on the shelf.
+        try await database.setBooks(ids: [book.id, second.id], onShelf: shelf.id, true)
+        var list = try await shelfList()
+        XCTAssertEqual(list.count(on: shelf.id), 2)
+
+        try await database.setBooks(ids: [book.id, second.id], onShelf: shelf.id, false)
+        list = try await shelfList()
+        XCTAssertEqual(list.count(on: shelf.id), 0)
+    }
+
     func testDeletingAShelfKeepsItsBooks() async throws {
         let book = try await importSample()
         let created = try await database.createShelf(named: "Favorites")

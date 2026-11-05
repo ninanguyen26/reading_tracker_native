@@ -104,4 +104,56 @@ final class ShelfUITests: XCTestCase {
         XCTAssertTrue(book(epubTitle, in: app).exists)
         XCTAssertFalse(best.exists)
     }
+
+    func testSelectsBooksInBulk() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-reset-library", "-import-samples"]
+        app.launch()
+        XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 15))
+
+        // Select both books and put them on a new shelf.
+        app.buttons["Select"].tap()
+        XCTAssertFalse(app.buttons["tab-library"].exists)
+        book(epubTitle, in: app).tap()
+        book(pdfTitle, in: app).tap()
+        XCTAssertTrue(book(epubTitle, in: app).isSelected)
+        XCTAssertTrue(app.navigationBars["2 Selected"].exists)
+        app.buttons["Add to Shelf"].tap()
+        XCTAssertTrue(menuItem("New Shelf…", in: app).waitForExistence(timeout: 5))
+        menuItem("New Shelf…", in: app).tap()
+        enterName("Favorites", in: app)
+        let favorites = app.buttons["shelf-Favorites"]
+        XCTAssertTrue(favorites.waitForExistence(timeout: 5))
+        let twoBooks = NSPredicate(format: "label == %@", "Favorites, 2 books")
+        wait(for: [expectation(for: twoBooks, evaluatedWith: favorites)], timeout: 5)
+        XCTAssertTrue(app.buttons["tab-library"].exists)
+
+        // Remove them all from the shelf; they stay in the library.
+        favorites.tap()
+        app.buttons["Select"].tap()
+        app.buttons["Select All"].tap()
+        XCTAssertTrue(app.navigationBars["2 Selected"].exists)
+        app.buttons["Remove from Shelf"].tap()
+        let noBooks = NSPredicate(format: "label == %@", "Favorites, 0 books")
+        wait(for: [expectation(for: noBooks, evaluatedWith: favorites)], timeout: 5)
+        app.buttons["shelf-all"].tap()
+        XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(book(pdfTitle, in: app).exists)
+
+        // Delete acts only on selected books still in view.
+        app.buttons["Select"].tap()
+        app.buttons["Select All"].tap()
+        let search = app.textFields["library-search"]
+        search.tap()
+        search.typeText("Field\n")
+        XCTAssertTrue(app.navigationBars["1 Selected"].waitForExistence(timeout: 5))
+        app.buttons["Delete"].tap()
+        let confirm = menuItem("Delete 1 Book", in: app)
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+        XCTAssertTrue(app.buttons["tab-library"].waitForExistence(timeout: 5))
+        app.buttons["Clear Search"].tap()
+        XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 5))
+        XCTAssertFalse(book(pdfTitle, in: app).exists)
+    }
 }
