@@ -84,5 +84,7 @@ test('health does not call Hardcover; public HTTP lookup returns sanitized metad
     assert.equal(response.status,200);assert.equal((await response.json()).metadata.bookID,42);
     const bad=await fetch(url+'/v1/metadata',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"query":"anything"}'});
     assert.equal(bad.status,400);
+    const oversized=await fetch(url+'/v1/metadata',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...input,title:'x'.repeat(5000)})});
+    assert.equal(oversized.status,413);
   } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });

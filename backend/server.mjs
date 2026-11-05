@@ -18,6 +18,7 @@ export function createServer(catalog = new Catalog({token:process.env.HARDCOVER_
       const forwarded = String(req.headers['x-forwarded-for'] ?? '').split(',').map(v=>v.trim());
       catalog.limitClient(process.env.RENDER ? forwarded.at(-1) || req.socket.remoteAddress : req.socket.remoteAddress);
       if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) throw new CatalogError(415,'json_required');
+      if (Number(req.headers['content-length']) > 4096) { req.resume(); throw new CatalogError(413,'lookup_too_large'); }
       let size = 0; const chunks = [];
       for await (const chunk of req) {
         size += chunk.length;
