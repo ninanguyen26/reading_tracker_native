@@ -43,14 +43,14 @@ struct HighlightPalette: Identifiable, Equatable {
         name: "Ember & Moss",
         colors: ("#EED9C4", "#DDA28A", "#B47A7A", "#8F9B6E", "#7B5E4A")
     )
-    static let rainyAfternoon = HighlightPalette(
-        id: "rainyAfternoon",
-        name: "Rainy Afternoon",
-        colors: ("#94A3B8", "#67E8F9", "#818CF8", "#C4B5FD", "#86EFAC")
+    static let cloverAndCustard = HighlightPalette(
+        id: "cloverAndCustard",
+        name: "Clover & Custard",
+        colors: ("#F0F7EA", "#FFFAE0", "#EEE59F", "#AAD480", "#75C97F")
     )
 
     static let all: [HighlightPalette] = [
-        .gardenParty, .honeyAndDusk, .petalAndDusk, .emberAndMoss, .rainyAfternoon
+        .gardenParty, .honeyAndDusk, .petalAndDusk, .emberAndMoss, .cloverAndCustard
     ]
 }
 
