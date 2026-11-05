@@ -84,6 +84,18 @@ final class AppDatabase: Sendable {
                 t.add(column: "pageCountEditionKey", .text)
             }
         }
+        migrator.registerMigration("v8-shelves") { db in
+            try db.create(table: "shelf") { t in
+                t.primaryKey("id", .text)
+                t.column("name", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+            }
+            try db.create(table: "bookShelf") { t in
+                t.column("bookId", .text).notNull().references("book", onDelete: .cascade)
+                t.column("shelfId", .text).notNull().indexed().references("shelf", onDelete: .cascade)
+                t.primaryKey(["bookId", "shelfId"])
+            }
+        }
         return migrator
     }
 
@@ -181,6 +193,63 @@ final class AppDatabase: Sendable {
                     .filter(Column("bookId") == bookId)
                     .order(Column("progression"), Column("createdAt"))
                     .fetchAll(db)
+            }
+            .values(in: writer)
+    }
+
+    // MARK: Shelves
+
+    /// Creates a shelf, or returns the existing one with the same name (ignoring case).
+    @discardableResult
+    func createShelf(named name: String) async throws -> Shelf? {
+        let clean = Shelf.cleanName(name)
+        guard !clean.isEmpty else { return nil }
+        return try await writer.write { db in
+            if let existing = try Shelf.fetchAll(db).first(where: { $0.name.caseInsensitiveCompare(clean) == .orderedSame }) {
+                return existing
+            }
+            let shelf = Shelf(id: UUID().uuidString, name: clean, createdAt: Date())
+            try shelf.insert(db)
+            return shelf
+        }
+    }
+
+    func renameShelf(id: String, to name: String) async throws {
+        let clean = Shelf.cleanName(name)
+        guard !clean.isEmpty else { return }
+        try await writer.write { db in
+            try db.execute(sql: "UPDATE shelf SET name = ? WHERE id = ?", arguments: [clean, id])
+        }
+    }
+
+    /// Deletes a shelf. Its books stay in the library.
+    func deleteShelf(id: String) async throws {
+        _ = try await writer.write { try Shelf.deleteOne($0, key: id) }
+    }
+
+    func setBook(id bookId: String, onShelf shelfId: String, _ onShelf: Bool) async throws {
+        let entry = BookShelf(bookId: bookId, shelfId: shelfId)
+        try await writer.write { db in
+            if onShelf {
+                try entry.insert(db, onConflict: .ignore)
+            } else {
+                try entry.delete(db)
+            }
+        }
+    }
+
+    /// Every shelf and its books, now and whenever they change.
+    func observeShelves() -> AsyncValueObservation<ShelfList> {
+        ValueObservation
+            .tracking { db in
+                let shelves = try Shelf.fetchAll(db).sorted {
+                    $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                }
+                var shelfIdsByBook: [String: Set<String>] = [:]
+                for entry in try BookShelf.fetchAll(db) {
+                    shelfIdsByBook[entry.bookId, default: []].insert(entry.shelfId)
+                }
+                return ShelfList(shelves: shelves, shelfIdsByBook: shelfIdsByBook)
             }
             .values(in: writer)
     }

@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// State for the library screen: the book list, search, sort, and imports.
+/// State for the library screen: the book list, shelves, search, sort, and imports.
 @MainActor
 final class LibraryModel: ObservableObject {
     @Published private(set) var books: [Book] = []
@@ -10,16 +10,23 @@ final class LibraryModel: ObservableObject {
     @Published var sort: LibrarySort {
         didSet { UserDefaults.standard.set(sort.rawValue, forKey: Self.sortKey) }
     }
+    @Published private(set) var shelfList = ShelfList()
+    @Published private var selectedShelfId: String? {
+        didSet { UserDefaults.standard.set(selectedShelfId, forKey: Self.shelfKey) }
+    }
     @Published private(set) var importing: [String] = []
     @Published var errorMessage: String?
 
     let environment: AppEnvironment
     private static let sortKey = "library-sort"
+    private static let shelfKey = "library-shelf"
     private var observation: Task<Void, Never>?
+    private var shelfObservation: Task<Void, Never>?
 
     init(environment: AppEnvironment) {
         self.environment = environment
         sort = UserDefaults.standard.string(forKey: Self.sortKey).flatMap(LibrarySort.init) ?? .recent
+        selectedShelfId = UserDefaults.standard.string(forKey: Self.shelfKey)
         observation = Task { [weak self] in
             guard let database = self?.environment.database else { return }
             do {
@@ -31,12 +38,72 @@ final class LibraryModel: ObservableObject {
                 self?.errorMessage = "Your library couldn’t be loaded. \(error.localizedDescription)"
             }
         }
+        shelfObservation = Task { [weak self] in
+            guard let database = self?.environment.database else { return }
+            do {
+                for try await shelfList in database.observeShelves() { self?.shelfList = shelfList }
+            } catch {
+                self?.errorMessage = "Your shelves couldn’t be loaded. \(error.localizedDescription)"
+            }
+        }
     }
 
-    deinit { observation?.cancel() }
+    deinit {
+        observation?.cancel()
+        shelfObservation?.cancel()
+    }
+
+    /// The chosen shelf; a remembered one that no longer exists counts as none.
+    var activeShelf: Shelf? {
+        shelfList.shelves.first { $0.id == selectedShelfId }
+    }
+
+    var booksOnActiveShelf: [Book] {
+        shelfList.books(books, on: activeShelf?.id)
+    }
 
     var visibleBooks: [Book] {
-        books.matching(query).sorted(by: sort)
+        booksOnActiveShelf.matching(query).sorted(by: sort)
+    }
+
+    func select(_ shelf: Shelf?) {
+        selectedShelfId = shelf?.id
+    }
+
+    /// Creates a shelf. From the shelf bar it opens the new shelf; from a book's menu it adds that book.
+    func createShelf(named name: String, adding book: Book? = nil) {
+        runShelfChange { database in
+            guard let shelf = try await database.createShelf(named: name) else { return }
+            if let book {
+                try await database.setBook(id: book.id, onShelf: shelf.id, true)
+            } else {
+                self.select(shelf)
+            }
+        }
+    }
+
+    func rename(_ shelf: Shelf, to name: String) {
+        runShelfChange { try await $0.renameShelf(id: shelf.id, to: name) }
+    }
+
+    func delete(_ shelf: Shelf) {
+        if selectedShelfId == shelf.id { select(nil) }
+        runShelfChange { try await $0.deleteShelf(id: shelf.id) }
+    }
+
+    func toggle(_ book: Book, on shelf: Shelf) {
+        let onShelf = !shelfList.isBook(book.id, on: shelf.id)
+        runShelfChange { try await $0.setBook(id: book.id, onShelf: shelf.id, onShelf) }
+    }
+
+    private func runShelfChange(_ change: @escaping (AppDatabase) async throws -> Void) {
+        Task {
+            do {
+                try await change(environment.database)
+            } catch {
+                errorMessage = "Your shelves couldn’t be updated. \(error.localizedDescription)"
+            }
+        }
     }
 
     func coverURL(for book: Book) -> URL? {

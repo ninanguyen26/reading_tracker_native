@@ -8,9 +8,24 @@ struct LibraryView: View {
     @FocusState private var searchFocused: Bool
     @State private var bookToDelete: Book?
     @State private var bookToInspect: Book?
+    @State private var shelfToDelete: Shelf?
+    @State private var shelfNaming: ShelfNaming?
+    @State private var shelfName = ""
     // Navigate by ID: a Book value changes as soon as it's opened (progress,
     // last-opened date), which SwiftUI would treat as a different destination.
     @State private var path: [String] = []
+
+    private enum ShelfNaming {
+        case create(adding: Book?)
+        case rename(Shelf)
+
+        var title: String {
+            switch self {
+            case .create: "New Shelf"
+            case .rename: "Rename Shelf"
+            }
+        }
+    }
 
     private let columns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 20, alignment: .top)]
 
@@ -69,6 +84,25 @@ struct LibraryView: View {
             } message: { _ in
                 Text("The book and your reading position will be removed from this device.")
             }
+            .confirmationDialog(
+                "Delete the “\(shelfToDelete?.name ?? "")” shelf?",
+                isPresented: Binding(get: { shelfToDelete != nil }, set: { if !$0 { shelfToDelete = nil } }),
+                titleVisibility: .visible,
+                presenting: shelfToDelete
+            ) { shelf in
+                Button("Delete Shelf", role: .destructive) { model.delete(shelf) }
+            } message: { _ in
+                Text("Its books stay in your library.")
+            }
+            .alert(
+                shelfNaming?.title ?? "",
+                isPresented: Binding(get: { shelfNaming != nil }, set: { if !$0 { shelfNaming = nil } })
+            ) {
+                TextField("Shelf name", text: $shelfName)
+                Button("Cancel", role: .cancel) {}
+                Button("Save") { saveShelfName() }
+                    .disabled(Shelf.cleanName(shelfName).isEmpty)
+            }
             .alert(
                 "Something went wrong",
                 isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })
@@ -88,9 +122,16 @@ struct LibraryView: View {
                 if model.loaded && model.books.isEmpty {
                     EmptyLibraryView { showingImporter = true }
                 } else {
+                    shelfBar
                     ScrollView {
                         importStatus
-                        if !model.query.isEmpty && model.visibleBooks.isEmpty {
+                        if model.activeShelf != nil && model.booksOnActiveShelf.isEmpty {
+                            Text("No books on this shelf yet. Touch and hold a book to add it.")
+                                .foregroundStyle(AppPalette.secondaryText)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                                .padding(.top, 40)
+                        } else if !model.query.isEmpty && model.visibleBooks.isEmpty {
                             Text("No books match “\(model.query)”.")
                                 .foregroundStyle(AppPalette.secondaryText)
                                 .padding(.top, 40)
@@ -169,7 +210,88 @@ struct LibraryView: View {
         }
         .padding(.horizontal)
         .padding(.top, 4)
-        .padding(.bottom, 18)
+        .padding(.bottom, 10)
+    }
+
+    /// Filters the library by shelf, with ways to add, rename and delete shelves.
+    private var shelfBar: some View {
+        HStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    shelfChip("All Books", count: model.books.count, id: "all", selected: model.activeShelf == nil) {
+                        model.select(nil)
+                    }
+                    ForEach(model.shelfList.shelves) { shelf in
+                        shelfChip(shelf.name, count: model.shelfList.count(on: shelf.id), id: shelf.name, selected: model.activeShelf == shelf) {
+                            model.select(shelf)
+                        }
+                    }
+                    Button { nameShelf(.create(adding: nil)) } label: {
+                        Label("New Shelf", systemImage: "plus")
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(AppPalette.secondaryText)
+                            .padding(.horizontal, 12)
+                            .frame(minHeight: 34)
+                            .overlay(Capsule().strokeBorder(AppPalette.border, style: StrokeStyle(lineWidth: 1, dash: [4])))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 1)
+            }
+            if let shelf = model.activeShelf {
+                Menu {
+                    Button { nameShelf(.rename(shelf)) } label: {
+                        Label("Rename Shelf", systemImage: "pencil")
+                    }
+                    Button(role: .destructive) { shelfToDelete = shelf } label: {
+                        Label("Delete Shelf", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 34, height: 34)
+                        .foregroundStyle(.primary)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Shelf Options")
+                .padding(.trailing)
+            }
+        }
+        .padding(.bottom, 14)
+    }
+
+    private func shelfChip(_ title: String, count: Int, id: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Text(title).lineLimit(1)
+                Text(count.formatted()).monospacedDigit().opacity(0.7)
+            }
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(selected ? AppPalette.onAccent : AppPalette.text)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 34)
+            .background(selected ? AppPalette.accent : AppPalette.surface, in: Capsule())
+            .overlay(Capsule().strokeBorder(selected ? Color.clear : AppPalette.border))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title), \(count) \(count == 1 ? "book" : "books")")
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityIdentifier("shelf-\(id)")
+    }
+
+    private func nameShelf(_ naming: ShelfNaming) {
+        searchFocused = false
+        if case .rename(let shelf) = naming { shelfName = shelf.name } else { shelfName = "" }
+        shelfNaming = naming
+    }
+
+    private func saveShelfName() {
+        switch shelfNaming {
+        case .create(let book): model.createShelf(named: shelfName, adding: book)
+        case .rename(let shelf): model.rename(shelf, to: shelfName)
+        case nil: break
+        }
     }
 
     private func bookLink(_ book: Book) -> some View {
@@ -180,6 +302,22 @@ struct LibraryView: View {
         .contextMenu {
             Button { bookToInspect = book } label: {
                 Label("Book Details", systemImage: "info.circle")
+            }
+            Menu {
+                ForEach(model.shelfList.shelves) { shelf in
+                    Button { model.toggle(book, on: shelf) } label: {
+                        if model.shelfList.isBook(book.id, on: shelf.id) {
+                            Label(shelf.name, systemImage: "checkmark")
+                        } else {
+                            Text(shelf.name)
+                        }
+                    }
+                }
+                Button { nameShelf(.create(adding: book)) } label: {
+                    Label("New Shelf…", systemImage: "plus")
+                }
+            } label: {
+                Label("Shelves", systemImage: "books.vertical")
             }
             Button(role: .destructive) { bookToDelete = book } label: {
                 Label("Delete Book", systemImage: "trash")

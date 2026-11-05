@@ -18,10 +18,10 @@ final class HighlightUITests: XCTestCase {
     /// Long-presses a word in the book and waits for the selection menu.
     private func selectWord(in app: XCUIApplication, at offset: CGVector) {
         let page = app.otherElements["reader-content"]
-        page.coordinate(withNormalizedOffset: offset).press(forDuration: 1.2)
-        // iOS sometimes only shows the menu after a tap on the selection.
-        if !menuItem("Highlight", in: app).waitForExistence(timeout: 3) {
-            page.coordinate(withNormalizedOffset: offset).tap()
+        // A freshly opened page can miss the first press; a tap here would only toggle the toolbar.
+        for _ in 0..<3 {
+            page.coordinate(withNormalizedOffset: offset).press(forDuration: 1.2)
+            if menuItem("Highlight", in: app).waitForExistence(timeout: 3) { return }
         }
     }
 
@@ -49,8 +49,11 @@ final class HighlightUITests: XCTestCase {
         app.buttons["Done"].tap()
 
         // It's listed under Notes with its note.
-        app.otherElements["reader-content"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)).tap()
-        XCTAssertTrue(app.buttons["Contents and Bookmarks"].waitForExistence(timeout: 5))
+        // A tap while the sheet is still closing can be missed.
+        for _ in 0..<3 where !app.buttons["Contents and Bookmarks"].exists {
+            app.otherElements["reader-content"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)).tap()
+            _ = app.buttons["Contents and Bookmarks"].waitForExistence(timeout: 3)
+        }
         app.buttons["Contents and Bookmarks"].tap()
         app.segmentedControls.buttons["Notes"].tap()
         let entry = app.buttons.matching(NSPredicate(format: "label CONTAINS 'A note about this'")).firstMatch
