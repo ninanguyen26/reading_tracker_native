@@ -33,10 +33,10 @@ struct HighlightPalette: Identifiable, Equatable {
         name: "Honey & Dusk",
         colors: ("#F59E0B", "#FB923C", "#F87171", "#FDA4AF", "#FDE68A")
     )
-    static let midnightLibrary = HighlightPalette(
-        id: "midnightLibrary",
-        name: "Midnight Library",
-        colors: ("#5EAAA8", "#547AA5", "#7C6FA0", "#6B9E72", "#C17F74")
+    static let petalAndDusk = HighlightPalette(
+        id: "petalAndDusk",
+        name: "Petal & Dusk",
+        colors: ("#6C0820", "#F2AEBC", "#F2DCDB", "#5A86CB", "#3D5D91")
     )
     static let emberAndMoss = HighlightPalette(
         id: "emberAndMoss",
@@ -50,7 +50,7 @@ struct HighlightPalette: Identifiable, Equatable {
     )
 
     static let all: [HighlightPalette] = [
-        .gardenParty, .honeyAndDusk, .midnightLibrary, .emberAndMoss, .rainyAfternoon
+        .gardenParty, .honeyAndDusk, .petalAndDusk, .emberAndMoss, .rainyAfternoon
     ]
 }
 
