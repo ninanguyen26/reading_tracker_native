@@ -19,13 +19,16 @@ struct ReaderSettings: Codable, Equatable {
     }
 
     enum Font: String, CaseIterable, Codable, Identifiable {
-        case original, serif, sans
+        case original, serif, sans, newYork, georgia, palatino
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .original: "Original"
-            case .serif: "Serif"
-            case .sans: "Sans"
+            case .original:  "Original"
+            case .serif:     "Serif"
+            case .sans:      "Sans"
+            case .newYork:   "New York"
+            case .georgia:   "Georgia"
+            case .palatino:  "Palatino"
             }
         }
     }
@@ -66,9 +69,12 @@ struct ReaderSettings: Codable, Equatable {
         return EPUBPreferences(
             fontFamily: {
                 switch font {
-                case .original: nil
-                case .serif: .iowanOldStyle
-                case .sans: .sansSerif
+                case .original:  nil
+                case .serif:     .iowanOldStyle
+                case .sans:      .sansSerif
+                case .newYork:   "New York"
+                case .georgia:   .georgia
+                case .palatino:  .palatino
                 }
             }(),
             fontSize: fontSize,
