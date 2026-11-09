@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Catalog,validateInput} from './catalog.mjs';
 import {createServer} from './server.mjs';
-const book = {id:42,title:'Test Book',description:'A wizard explores an enchanted forest.',
+const book = {id:42,title:'Test Book',description:'A wizard explores an enchanted forest.',rating:'4.24',ratings_count:1283,
   contributions:[{author:{name:'Test Author'}}],book_series:[{position:2.5,series:{name:'Wizard Series'}}],
   cached_tags:{Genre:[{tag:'Fantasy'}],Mood:[{tag:'Dark'},{tag:'Dark'}],'Content Warning':[{tag:'Blood'}]}};
 const input = {title:'Test Book',author:'Test Author'};
@@ -21,8 +21,14 @@ test('exact ISBN supplies edition pages and separate tag categories; credentials
   assert.equal(data.exactEdition.pages,320);assert.equal(data.exactEdition.isbn,'9780140328721');
   assert.equal(data.series[0].position,2.5);assert.deepEqual(data.genres,['Fantasy']);
   assert.deepEqual(data.moods,['Dark']);assert.deepEqual(data.contentWarnings,['Blood']);
+  assert.equal(data.rating,4.24);assert.equal(data.ratingsCount,1283);
   assert.equal(requests[0].init.headers.Authorization,'Bearer test-only-credential');
   assert.ok(!JSON.stringify(data).includes('test-only-credential'));
+});
+test('zero ratings do not produce an average',async()=>{
+  const {catalog}=setup(()=>result({books:[{...book,rating:0,ratings_count:0}]}));
+  const data=await catalog.lookup(input);
+  assert.equal(data.rating,null);assert.equal(data.ratingsCount,0);
 });
 test('title and author match cannot supply pages; mismatched authors rejected',async()=>{
   const {catalog}=setup(()=>result({books:[{...book,pages:999}]}));

@@ -25,7 +25,7 @@ export function validateInput(input) {
     throw new CatalogError(400,'insufficient_identifiers');
   return {isbn: identifier, title: values.title, author: values.author};
 }
-const fields = `id title description cached_tags contributions { author { name } } book_series { position series { name } }`;
+const fields = `id title description rating ratings_count cached_tags contributions { author { name } } book_series { position series { name } }`;
 function tagNames(tags) {
   return Array.isArray(tags) ? [...new Set(tags.map(t => typeof t === 'string' ? t : t?.tag ?? t?.name)
     .filter(t => typeof t === 'string' && t.trim()).map(t => t.trim().slice(0,100)))].slice(0,30) : [];
@@ -38,6 +38,9 @@ function warningTags(categories) {
 }
 function metadata(record, edition = null, matchedISBN = null) {
   if (!Number.isInteger(record?.id) || record.id <= 0) throw new CatalogError(502,'invalid_catalog_response');
+  const ratingsCount = Number.isSafeInteger(record.ratings_count) && record.ratings_count >= 0
+    ? record.ratings_count : null;
+  const rating = typeof record.rating === 'string' && record.rating.trim() ? Number(record.rating) : record.rating;
   return {
     bookID: record.id,
     description: typeof record.description === 'string' ? record.description.slice(0,30000) : null,
@@ -46,6 +49,8 @@ function metadata(record, edition = null, matchedISBN = null) {
     genres: tagNames(record.cached_tags?.Genre),
     moods: tagNames(record.cached_tags?.Mood),
     contentWarnings: tagNames(warningTags(record.cached_tags)),
+    rating: ratingsCount > 0 && Number.isFinite(rating) && rating >= 0 && rating <= 5 ? rating : null,
+    ratingsCount,
     exactEdition: edition && Number.isInteger(edition.id) && edition.id > 0 && Number.isInteger(edition.pages) && edition.pages > 0
       ? {id: edition.id, isbn: matchedISBN, pages: edition.pages} : null
   };
