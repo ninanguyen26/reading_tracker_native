@@ -165,7 +165,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertEqual(app.staticTexts["details-description"].label, "A keeper watches over an isolated island.")
         captureDetails("EPUB Book Details", in: app)
         app.scrollViews.firstMatch.swipeUp()
-        XCTAssertTrue(app.staticTexts["Series"].exists)
+        XCTAssertTrue(app.staticTexts["In This Series"].exists)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Island Stories · Book 2.5")).firstMatch.exists)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Coastal Tales")).firstMatch.exists)
         XCTAssertFalse(app.staticTexts["Subjects"].exists)
@@ -207,7 +207,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Book Details"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts[pdfTitle].exists)
         XCTAssertTrue(app.staticTexts["PDF"].exists)
-        for heading in ["Description", "Series", "Subjects", "Language", "Languages"] {
+        for heading in ["Description", "In This Series", "Subjects", "Language", "Languages"] {
             XCTAssertFalse(app.staticTexts[heading].exists)
         }
         captureDetails("PDF Book Details", in: app)

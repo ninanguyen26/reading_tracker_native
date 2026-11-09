@@ -161,7 +161,8 @@ struct LibraryView: View {
                 }
                 .id(book.id)
             case .details(_, let fromReader):
-                BookDetailsScreen(book: book, coverURL: model.coverURL(for: book), fromReader: fromReader) {
+                BookDetailsScreen(book: book, coverURL: model.coverURL(for: book),
+                                  fromReader: fromReader, libraryBooks: model.books) {
                     guard path.last == route else { return }
                     if fromReader {
                         path.removeLast()
@@ -171,6 +172,8 @@ struct LibraryView: View {
                 } onDeleted: {
                     selectedTab = .library
                     path.removeAll()
+                } onOpenBook: { id in
+                    path.append(.details(id, fromReader: false))
                 }
             }
         }

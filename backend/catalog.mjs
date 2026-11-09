@@ -67,10 +67,20 @@ function metadata(record, edition = null, matchedISBN = null) {
 
 const previewCount = 6;
 const seriesPageSize = 24;
+const seriesBatchSize = 100;
 const authorRole = '_or:[{contribution:{_is_null:true}},{contribution:{_eq:"Author"}},{contribution:{_eq:"author"}}]';
 const cardFields = 'id title description cached_image default_cover_edition { isbn_13 isbn_10 } ' +
   'contributions(where:{' + authorRole + '},limit:4) { author { name } }';
 const seriesOrder = 'order_by:[{position:asc_nulls_last},{book_id:asc},{id:asc}]';
+const editionLanguage = 'language { code2 code3 }';
+const seriesFields = `position book {
+  ${cardFields} canonical_id users_count
+  default_cover_edition { ${editionLanguage} }
+  preferred: editions(where:{language:{_or:[{code2:{_eq:$language}},{code3:{_eq:$language}}]},
+    canonical_id:{_is_null:true}},order_by:[{users_count:desc_nulls_last},{id:asc}],limit:1) {
+    title description isbn_13 isbn_10 cached_image
+  }
+}`;
 
 function coverURL(value) {
   try {
@@ -80,28 +90,65 @@ function coverURL(value) {
   } catch { return null; }
 }
 
-function discoveryCard(book) {
+function discoveryCard(book, preferred) {
   if (!Number.isInteger(book?.id) || book.id <= 0 || typeof book.title !== 'string' || !book.title.trim()) return null;
-  const edition = book.default_cover_edition;
+  const edition = preferred ?? book.default_cover_edition;
+  const title = preferred?.title?.trim() || book.title;
+  const description = preferred?.description?.trim() || book.description;
   return {
     id: book.id,
-    title: book.title.slice(0,500),
+    title: title.slice(0,500),
     author: [...new Set((book.contributions ?? []).map(item => item.author?.name).filter(Boolean))]
       .join(', ').slice(0,300),
-    description: typeof book.description === 'string' ? book.description.slice(0,4000) : null,
-    coverURL: coverURL(book.cached_image?.url),
+    description: typeof description === 'string' ? description.slice(0,4000) : null,
+    coverURL: coverURL(preferred ? preferred.cached_image?.url : book.cached_image?.url),
     isbns: [...new Set([isbn(edition?.isbn_13), isbn(edition?.isbn_10)].filter(Boolean))]
   };
 }
 
-function seriesEntries(members) {
-  const seen = new Set();
-  return members.flatMap(member => {
-    const book = discoveryCard(member.book);
-    if (!book || seen.has(book.id)) return [];
-    seen.add(book.id);
-    return [{book, position: Number.isFinite(member.position) ? member.position : null}];
-  });
+function seriesLanguage(value) {
+  return typeof value === 'string' && /^[a-z]{2,3}$/.test(value) && !['und','mul','zxx'].includes(value)
+    ? value : '';
+}
+
+function seriesEntries(members, currentID, language) {
+  const works = new Map();
+  const positions = new Map();
+  const rank = entry => [entry.book.id === currentID, entry.languageRank,
+    entry.canonicalID === entry.book.id, entry.usersCount];
+  function keepPreferred(groups, key, entry) {
+    const previous = groups.get(key);
+    if (!previous) {
+      groups.set(key, entry);
+      return;
+    }
+    const previousRank = rank(previous);
+    const nextRank = rank(entry);
+    const difference = nextRank.findIndex((value, index) => value !== previousRank[index]);
+    if (difference !== -1 && nextRank[difference] > previousRank[difference]) {
+      groups.set(key, {...entry, position: previous.position});
+    }
+  }
+
+  for (const {book, position} of members) {
+    const defaultLanguage = book?.default_cover_edition?.language;
+    const defaultMatches = Boolean(language && [defaultLanguage?.code2, defaultLanguage?.code3].includes(language));
+    const preferred = language && !defaultMatches ? book?.preferred?.[0] : null;
+    const card = discoveryCard(book, preferred);
+    if (!card) continue;
+    card.language = (preferred ? language : seriesLanguage(defaultLanguage?.code2) || seriesLanguage(defaultLanguage?.code3)) || null;
+    const canonicalID = validCatalogID(book.canonical_id) ? book.canonical_id : book.id;
+    keepPreferred(works, canonicalID, {book:card, canonicalID, position:Number.isFinite(position) ? position : null,
+      languageRank:defaultMatches ? 2 : preferred ? 1 : 0, usersCount:book.users_count ?? 0});
+  }
+
+  // Hardcover also lists unlinked translations at the same numbered position.
+  // Unnumbered entries have no such slot and stay separate by work ID.
+  for (const entry of works.values()) {
+    const key = entry.position ?? `work:${entry.canonicalID}`;
+    keepPreferred(positions, key, entry);
+  }
+  return [...positions.values()].map(({book, position}) => ({book, position}));
 }
 
 function validCatalogID(id) {
@@ -150,46 +197,55 @@ export class Catalog {
     return job;
   }
   async discovery(input) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new CatalogError(400,'invalid_discovery');
+    const {language: requestedLanguage, ...lookup} = input;
+    const language = seriesLanguage(requestedLanguage);
+    if (requestedLanguage != null && !language) throw new CatalogError(400,'invalid_discovery');
     let bookID;
-    if (input && Object.hasOwn(input, 'bookID')) {
-      if (Object.keys(input).length !== 1 || !validCatalogID(input.bookID)) throw new CatalogError(400,'invalid_discovery');
-      bookID = input.bookID;
+    if (Object.hasOwn(lookup, 'bookID')) {
+      if (Object.keys(lookup).length !== 1 || !validCatalogID(lookup.bookID)) throw new CatalogError(400,'invalid_discovery');
+      bookID = lookup.bookID;
     } else {
-      bookID = (await this.lookup(input))?.bookID;
+      bookID = (await this.lookup(lookup))?.bookID;
     }
-    return bookID ? this.cached(`discovery:${bookID}`, () => this.relatedBooks(bookID)) : null;
+    return bookID ? this.cached(`discovery:${bookID}:${language}`, () => this.relatedBooks(bookID, language)) : null;
   }
-  async relatedBooks(bookID) {
-    const result = await this.query(`query Discovery($id:Int!) {
+  async relatedBooks(bookID, language) {
+    const result = await this.query(`query Discovery($id:Int!,$language:String!) {
       books(where:{id:{_eq:$id}},limit:1) {
         id
+        default_cover_edition { ${editionLanguage} }
         contributions(where:{${authorRole}},order_by:{id:asc},limit:5) { author_id }
         book_series(order_by:[{featured:desc},{id:asc}],limit:5) {
           position
           series {
             id name
-            book_series(${seriesOrder},limit:${previewCount+1}) { position book { ${cardFields} } }
+            book_series(${seriesOrder},limit:${seriesBatchSize}) { ${seriesFields} }
           }
         }
       }
-    }`, {id:bookID});
+    }`, {id:bookID, language});
     const current = result.books?.[0];
     if (!current) return null;
 
     const seenSeries = new Set();
-    const series = (current.book_series ?? []).flatMap(({series, position}) => {
-      if (!validCatalogID(series?.id) || typeof series.name !== 'string' || !series.name.trim() ||
-          seenSeries.has(series.id)) return [];
-      seenSeries.add(series.id);
-      const members = series.book_series ?? [];
-      return [{
-        id: series.id,
-        name: series.name.slice(0,300),
+    const series = [];
+    const currentLanguage = current.default_cover_edition?.language;
+    const preferredLanguage = language || seriesLanguage(currentLanguage?.code2) || seriesLanguage(currentLanguage?.code3);
+    for (const {series: group, position} of current.book_series ?? []) {
+      if (!validCatalogID(group?.id) || typeof group.name !== 'string' || !group.name.trim() ||
+          seenSeries.has(group.id)) continue;
+      seenSeries.add(group.id);
+      const {members} = await this.loadSeriesMembers(group.id, bookID, language, group.book_series ?? []);
+      const entries = seriesEntries(members, bookID, preferredLanguage);
+      series.push({
+        id: group.id,
+        name: group.name.slice(0,300),
         currentPosition: Number.isFinite(position) ? position : null,
-        entries: seriesEntries(members.slice(0,previewCount)),
-        nextOffset: members.length > previewCount ? previewCount : null
-      }];
-    });
+        entries: entries.slice(0,previewCount),
+        nextOffset: entries.length > previewCount ? previewCount : null
+      });
+    }
     const authors = [...new Set((current.contributions ?? []).map(item => item.author_id).filter(validCatalogID))];
     let authorBooks = [];
     if (authors.length) {
@@ -208,22 +264,38 @@ export class Catalog {
   }
   async seriesPage(input) {
     if (!input || typeof input !== 'object' || Array.isArray(input) ||
-        Object.keys(input).some(key => !['seriesID','offset'].includes(key)) ||
+        Object.keys(input).some(key => !['seriesID','offset','bookID','language'].includes(key)) ||
         !validCatalogID(input.seriesID) || !Number.isInteger(input.offset) ||
-        input.offset < 0 || input.offset > 10000) throw new CatalogError(400,'invalid_series_page');
-    const {seriesID, offset} = input;
-    return this.cached(`series:${seriesID}:${offset}`, async () => {
-      const result = await this.query(`query SeriesPage($id:Int!,$offset:Int!) {
-        series(where:{id:{_eq:$id}},limit:1) {
-          book_series(${seriesOrder},offset:$offset,limit:${seriesPageSize+1}) { position book { ${cardFields} } }
-        }
-      }`, {id:seriesID, offset});
-      const members = result.series?.[0]?.book_series ?? [];
-      return {
-        entries: seriesEntries(members.slice(0,seriesPageSize)),
-        nextOffset: members.length > seriesPageSize ? offset+seriesPageSize : null
-      };
+        input.offset < 0 || input.offset > 10000 ||
+        (input.bookID != null && !validCatalogID(input.bookID)) ||
+        (input.language != null && !seriesLanguage(input.language))) throw new CatalogError(400,'invalid_series_page');
+    const {seriesID, offset, bookID = null} = input;
+    const language = seriesLanguage(input.language);
+    const entries = await this.cached(`series:${seriesID}:${bookID}:${language}`, async () => {
+      const {members, currentLanguage} = await this.loadSeriesMembers(seriesID, bookID, language);
+      const preferredLanguage = language || seriesLanguage(currentLanguage?.code2) || seriesLanguage(currentLanguage?.code3);
+      return seriesEntries(members, bookID, preferredLanguage);
     });
+    const end = offset + seriesPageSize;
+    return {entries:entries.slice(offset,end), nextOffset:entries.length > end && end <= 10000 ? end : null};
+  }
+  async loadSeriesMembers(seriesID, bookID, language, initial) {
+    const members = [...(initial ?? [])];
+    let currentLanguage;
+    let batch = initial;
+    while (!batch || batch.length === seriesBatchSize) {
+      const offset = members.length;
+      const result = await this.query(`query SeriesPage($id:Int!,$offset:Int!,$language:String!,$currentID:Int!) {
+        books(where:{id:{_eq:$currentID}},limit:1) { default_cover_edition { ${editionLanguage} } }
+        series(where:{id:{_eq:$id}},limit:1) {
+          book_series(${seriesOrder},offset:$offset,limit:${seriesBatchSize}) { ${seriesFields} }
+        }
+      }`, {id:seriesID, offset, language, currentID:!initial && offset === 0 && !language ? bookID ?? 0 : 0});
+      batch = result.series?.[0]?.book_series ?? [];
+      currentLanguage ??= result.books?.[0]?.default_cover_edition?.language;
+      members.push(...batch);
+    }
+    return {members, currentLanguage};
   }
   async query(query, variables) {
     const time = this.now();

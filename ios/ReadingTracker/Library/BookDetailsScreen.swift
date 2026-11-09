@@ -4,8 +4,10 @@ struct BookDetailsScreen: View {
     @State private var book: Book
     let coverURL: URL?
     let fromReader: Bool
+    let libraryBooks: [Book]
     let onRead: () -> Void
     let onDeleted: () -> Void
+    let onOpenBook: (String) -> Void
     @EnvironmentObject private var environment: AppEnvironment
     @State private var showingLookup = false
     @State private var showingGenres = false
@@ -25,14 +27,16 @@ struct BookDetailsScreen: View {
         case about, myReading
     }
 
-    init(book: Book, coverURL: URL?, fromReader: Bool, onRead: @escaping () -> Void, onDeleted: @escaping () -> Void) {
+    init(book: Book, coverURL: URL?, fromReader: Bool, libraryBooks: [Book],
+         onRead: @escaping () -> Void, onDeleted: @escaping () -> Void, onOpenBook: @escaping (String) -> Void) {
         _book = State(initialValue: book)
         self.coverURL = coverURL
         self.fromReader = fromReader
+        self.libraryBooks = libraryBooks
         self.onRead = onRead
         self.onDeleted = onDeleted
+        self.onOpenBook = onOpenBook
     }
-    private var series: [BookSeries] { book.series.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } }
     private var languages: [String] { BookDetailsText.nonempty(book.languages) }
     private var metadataSources: [String: String] {
         var sources = book.openLibraryFields.filter {
@@ -197,6 +201,7 @@ struct BookDetailsScreen: View {
             contentWarningsCard(warnings)
         }
         metadataCard
+        BookDiscoverySection(book: book, coverURL: coverURL, libraryBooks: libraryBooks, onOpenBook: onOpenBook)
         Button { showingLookup = true } label: {
             Label("Find Missing Details", systemImage: "magnifyingglass")
                 .frame(maxWidth: .infinity)
@@ -394,9 +399,6 @@ struct BookDetailsScreen: View {
             metadataRow("Pages", value: pageCountLabel)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("details-pages")
-            if !series.isEmpty {
-                metadataRow("Series", value: series.map(BookDetailsText.series).joined(separator: "\n"))
-            }
             if !languages.isEmpty {
                 metadataRow(languages.count == 1 ? "Language" : "Languages",
                             value: languages.map { Locale.current.localizedString(forIdentifier: $0) ?? $0 }.joined(separator: ", "))
@@ -525,7 +527,7 @@ struct DetailsActionStyle: ButtonStyle {
     }
 }
 
-private extension View {
+extension View {
     func detailsCard(padding: CGFloat = 16) -> some View {
         self.frame(maxWidth: .infinity, alignment: .leading)
             .padding(padding)

@@ -88,17 +88,73 @@ test('discovery preserves series order and uses exact author and series IDs', as
 });
 test('series paging uses the same order and has no next page at the end', async () => {
   const {catalog,requests} = setup(({query}) => result(query.includes('SeriesPage')
-    ? {series:[{book_series:[{position:7,book:{id:7,title:'Book 7'}}]}]}
+    ? {series:[{book_series:Array.from({length:7},(_, i) => ({position:i+1,book:{id:i+1,title:`Book ${i+1}`}}))}]}
     : {books:[{id:42,book_series:[{series:{id:9,name:'Short Series',book_series:[{position:1,book}]}}]}]}));
   const discovery = await catalog.discovery({bookID:42});
   assert.equal(discovery.series[0].nextOffset,null);
   const page = await catalog.seriesPage({seriesID:9,offset:6});
   assert.equal(page.entries[0].book.id,7);
   assert.equal(page.nextOffset,null);
-  assert.deepEqual(requests[1].body.variables,{id:9,offset:6});
+  assert.deepEqual(requests[1].body.variables,{id:9,offset:0,language:'',currentID:0});
   for (const request of requests) assert.match(request.body.query,/position:asc_nulls_last/);
   await assert.rejects(() => catalog.seriesPage({seriesID:9,offset:-1}), {status:400});
   await assert.rejects(() => catalog.discovery({bookID:42,query:'ignored'}), {status:400});
+});
+test('series chooses one version per work before preview and page limits, using the current language', async () => {
+  const member = (position, id, title, code2, extra = {}) => ({position, book:{
+    id, title, default_cover_edition:{language:{code2}}, ...extra
+  }});
+  const members = [
+    member(1, 1, 'Book 1', 'en'),
+    member(2, 2, 'Book 2', 'en'),
+    member(3, 3, 'Current book', 'en'),
+    member(3, 30, 'Translation of current book', 'uk', {canonical_id:3}),
+    member(4, 4, 'Закон про шлюб', 'uk'),
+    member(4, 40, 'The Marriage Act', 'en'),
+    member(5, 5, 'Only available in French', 'fr'),
+    member(6, 6, 'Book 6', 'en'),
+    member(6, 60, 'Translation of book 6', 'uk', {canonical_id:6}),
+    member(7, 7, 'English title', 'en'),
+    member(7, 70, 'Ukrainian title', 'uk', {canonical_id:7}),
+    member(8, 8, 'Default title', 'fr', {preferred:[{title:'English edition', isbn_13:'9780140328721',
+      cached_image:{url:'https://assets.hardcover.app/english.jpg'}}]}),
+    member(null, 80, 'Unnumbered translation of book 6', 'uk', {canonical_id:6}),
+    member(null, 90, 'Unnumbered standalone entry', 'uk')
+  ];
+  const {catalog} = setup(({query,variables}) => {
+    // The preferred edition field only returns editions in the requested language.
+    const records = variables.language === 'en' ? members : members.map(({position,book}) => ({position,book:{...book,preferred:[]}}));
+    const current = {id:3, default_cover_edition:{language:{code2:'en'}}};
+    return result(query.includes('SeriesPage')
+      ? {books:[current], series:[{book_series:records}]}
+      : {books:[{...current,book_series:[{position:3,series:{id:9,name:'Dark Future',book_series:records}}]}]});
+  });
+  const english = (await catalog.discovery({bookID:3,language:'en'})).series[0];
+  assert.deepEqual(english.entries.map(entry => entry.book.id), [1,2,3,40,5,6]);
+  assert.equal(english.nextOffset,6);
+  const englishPage = await catalog.seriesPage({seriesID:9,offset:english.nextOffset,bookID:3,language:'en'});
+  assert.deepEqual(englishPage.entries.map(entry => entry.book.id), [7,8,90]);
+  assert.equal(englishPage.entries[1].book.title,'English edition');
+  assert.equal(englishPage.entries[1].book.coverURL,'https://assets.hardcover.app/english.jpg');
+  assert.equal(englishPage.nextOffset,null);
+  const ukrainian = (await catalog.discovery({bookID:3,language:'uk'})).series[0];
+  assert.deepEqual(ukrainian.entries.map(entry => entry.book.id), [1,2,3,4,5,60]);
+  const ukrainianPage = await catalog.seriesPage({seriesID:9,offset:ukrainian.nextOffset,bookID:3,language:'uk'});
+  assert.deepEqual(ukrainianPage.entries.map(entry => entry.book.id), [70,8,90]);
+  const fallback = (await catalog.discovery({bookID:3})).series[0];
+  assert.deepEqual(fallback.entries,english.entries);
+  const fallbackPage = await catalog.seriesPage({seriesID:9,offset:fallback.nextOffset,bookID:3});
+  assert.equal(fallbackPage.entries[1].book.title,'Default title');
+});
+test('translations across catalog batches do not consume another series slot', async () => {
+  const members = Array.from({length:101},(_,i) => ({position:Math.min(i+1,100),book:{
+    id:i+1,title:`Book ${i+1}`,default_cover_edition:{language:{code2:i === 99 ? 'uk' : 'en'}}
+  }}));
+  const {catalog,requests} = setup(({variables:{offset}}) => result({series:[{book_series:members.slice(offset,offset+100)}]}));
+  const page = await catalog.seriesPage({seriesID:9,offset:99,language:'en'});
+  assert.deepEqual(page.entries.map(entry => [entry.position,entry.book.id]),[[100,101]]);
+  assert.equal(page.nextOffset,null);
+  assert.deepEqual(requests.map(request => request.body.variables.offset),[0,100]);
 });
 test('missing ISBN falls back to title with no edition pages',async()=>{
   const {catalog,requests}=setup(body=>result(body.variables.isbn?{editions:[]}:{books:[book]}));
