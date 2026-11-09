@@ -161,6 +161,14 @@ final class AppDatabase: Sendable {
                 t.column("createdAt", .datetime).notNull()
             }
         }
+        migrator.registerMigration("v16-quarter-star-ratings-and-thoughts") { db in
+            try db.alter(table: "book") { t in
+                t.add(column: "personalRatingQuarterStars", .integer).check { (1...20).contains($0) }
+                t.add(column: "personalThoughts", .text)
+            }
+            try db.execute(sql: "UPDATE book SET personalRatingQuarterStars = personalRating * 4")
+            try db.alter(table: "book") { $0.drop(column: "personalRating") }
+        }
         return migrator
     }
 
@@ -231,9 +239,16 @@ final class AppDatabase: Sendable {
         }
     }
 
-    func setPersonalRating(_ rating: Int?, for bookID: String) async throws {
+    func savePersonalReview(quarterStars: Int?, thoughts: String, for bookID: String) async throws {
+        let savedThoughts = thoughts.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : thoughts
         try await writer.write { db in
-            try db.execute(sql: "UPDATE book SET personalRating = ? WHERE id = ?", arguments: [rating, bookID])
+            try db.execute(
+                sql: "UPDATE book SET personalRatingQuarterStars = ?, personalThoughts = ? WHERE id = ?",
+                arguments: [quarterStars, savedThoughts, bookID]
+            )
+            guard db.changesCount > 0 else {
+                throw RecordError.recordNotFound(databaseTableName: Book.databaseTableName, key: ["id": bookID.databaseValue])
+            }
         }
     }
 

@@ -19,7 +19,7 @@ struct BookDetailsScreen: View {
     @State private var loadingPages = true
     @State private var showingContentWarnings = false
     @State private var readingStatusError: String?
-    @State private var ratingError = false
+    @State private var showingRating = false
     @State private var section: Section = .about
     private var description: String? { BookDetailsText.description(book.description) }
 
@@ -65,13 +65,8 @@ struct BookDetailsScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 bookHeader
-                readingStatusControl
-                progressRow
-                Picker("Book Details Section", selection: $section) {
-                    Text("About").tag(Section.about)
-                    Text("My Reading").tag(Section.myReading)
-                }
-                .pickerStyle(.segmented)
+                readingStateRow
+                sectionTabs
 
                 switch section {
                 case .about:
@@ -98,11 +93,12 @@ struct BookDetailsScreen: View {
         .sheet(isPresented: $showingLookup) { OpenLibraryLookupScreen(book: book) { book = $0 } }
         .sheet(isPresented: $showingGenres) { BookGenreEditor(book: book) { book = $0 } }
         .sheet(isPresented: $showingShelves) { ManageBookShelvesSheet(bookID: book.id) }
+        .sheet(isPresented: $showingRating) { PersonalRatingEditor(book: book) }
         .alert("Delete “\(book.title)”?", isPresented: $confirmingDelete) {
             Button("Cancel", role: .cancel) {}
             Button("Delete Book", role: .destructive, action: deleteBook)
         } message: {
-            Text("This removes the book and its reading progress, bookmarks, highlights, rating, and journal entries from this device.")
+            Text("This removes the book and its reading progress, bookmarks, highlights, rating, thoughts, and journal entries from this device.")
         }
         .alert("Couldn’t delete book", isPresented: Binding(
             get: { deleteError != nil }, set: { if !$0 { deleteError = nil } }
@@ -187,6 +183,36 @@ struct BookDetailsScreen: View {
         .overlay(alignment: .top) { Divider().overlay(AppPalette.border) }
     }
 
+    private var sectionTabs: some View {
+        HStack(spacing: 0) {
+            sectionTab("About", for: .about)
+            sectionTab("My Reading", for: .myReading)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Book Details Section")
+    }
+
+    private func sectionTab(_ title: String, for tab: Section) -> some View {
+        let isSelected = section == tab
+        return Button { section = tab } label: {
+            Text(title)
+                .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? AppPalette.accent : AppPalette.secondaryText)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 7)
+                .overlay(alignment: .bottom) {
+                    if isSelected {
+                        Capsule().fill(AppPalette.accent).frame(height: 2)
+                    }
+                }
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
     @ViewBuilder private var about: some View {
         if let description { synopsisCard(description) }
         genresCard
@@ -211,39 +237,44 @@ struct BookDetailsScreen: View {
         if !metadataSources.isEmpty { sourcesCard }
     }
 
+    private var readingStateRow: some View {
+        HStack(spacing: 14) {
+            readingStatusControl
+            progressRow
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var readingStatusControl: some View {
-        HStack {
-            heading("Reading Status")
-            Spacer()
-            Menu {
-                ReadingStatusOptions(current: book.readingStatus) { status in
-                    let id = book.id
-                    Task {
-                        do {
-                            try await environment.database.setReadingStatus(status, for: [id])
-                        } catch {
-                            readingStatusError = error.localizedDescription
-                        }
+        Menu {
+            ReadingStatusOptions(current: book.readingStatus) { status in
+                let id = book.id
+                Task {
+                    do {
+                        try await environment.database.setReadingStatus(status, for: [id])
+                    } catch {
+                        readingStatusError = error.localizedDescription
                     }
                 }
-            } label: {
-                Label(book.readingStatus.label, systemImage: "chevron.up.chevron.down")
             }
-            .buttonStyle(DetailsActionStyle())
-            .accessibilityLabel("Reading Status")
-            .accessibilityValue(book.readingStatus.label)
-            .accessibilityIdentifier("book-reading-status")
+        } label: {
+            Label(book.readingStatus.label, systemImage: "chevron.up.chevron.down")
+                .fixedSize(horizontal: true, vertical: false)
         }
+        .buttonStyle(DetailsActionStyle(cornerRadius: 22))
+        .accessibilityLabel("Reading Status")
+        .accessibilityValue(book.readingStatus.label)
+        .accessibilityIdentifier("book-reading-status")
     }
 
     private var progressRow: some View {
         HStack(spacing: 10) {
-            Text("Progress")
-                .font(.caption.weight(.semibold))
             ProgressView(value: book.progression)
                 .tint(AppPalette.accent)
+                .frame(maxWidth: .infinity)
             Text(book.progression.formatted(.percent.precision(.fractionLength(0))))
                 .font(.caption.monospacedDigit())
+                .fixedSize(horizontal: true, vertical: false)
         }
         .foregroundStyle(AppPalette.secondaryText)
         .accessibilityElement(children: .ignore)
@@ -274,54 +305,16 @@ struct BookDetailsScreen: View {
     }
 
     private var personalRatingControl: some View {
-        Menu {
-            ForEach(1...5, id: \.self) { stars in
-                let label = stars == 1 ? "1 star" : "\(stars) stars"
-                Button { setPersonalRating(stars) } label: {
-                    if stars == book.personalRating {
-                        Label(label, systemImage: "checkmark")
-                    } else {
-                        Text(label)
-                    }
-                }
-            }
-            if book.personalRating != nil {
-                Button("Clear Rating") { setPersonalRating(nil) }
-            }
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Your Rating")
-                    .font(.caption)
-                    .foregroundStyle(AppPalette.secondaryText)
-                HStack(spacing: 4) {
-                    ForEach(1...5, id: \.self) { star in
-                        Image(systemName: "star.fill")
-                            .foregroundStyle(star <= (book.personalRating ?? 0) ? AppPalette.accent : Color.gray)
-                    }
-                }
+        Button { showingRating = true } label: {
+            PersonalRatingStars(quarterStars: book.personalRatingQuarterStars ?? 0)
                 .font(.subheadline)
-            }
-            .frame(minHeight: 44, alignment: .leading)
-            .contentShape(Rectangle())
+                .frame(minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Your Rating")
-        .accessibilityValue(book.personalRating.map { "\($0) out of 5" } ?? "Not rated")
+        .accessibilityValue(book.personalRatingQuarterStars.map { "\(personalRatingNumber($0)) out of 5" } ?? "Not rated")
         .accessibilityIdentifier("personal-rating")
-        .alert("Couldn’t save your rating", isPresented: $ratingError) {
-            Button("OK", role: .cancel) {}
-        }
-    }
-
-    private func setPersonalRating(_ rating: Int?) {
-        let id = book.id
-        Task {
-            do {
-                try await environment.database.setPersonalRating(rating, for: id)
-            } catch {
-                ratingError = true
-            }
-        }
     }
 
     private func synopsisCard(_ description: String) -> some View {
@@ -487,6 +480,180 @@ struct BookDetailsScreen: View {
     }
 }
 
+private struct PersonalRatingEditor: View {
+    let book: Book
+    @EnvironmentObject private var environment: AppEnvironment
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.layoutDirection) private var layoutDirection
+    @State private var quarterStars: Int
+    @State private var thoughts: String
+    @State private var saving = false
+    @State private var saveFailed = false
+
+    init(book: Book) {
+        self.book = book
+        _quarterStars = State(initialValue: book.personalRatingQuarterStars ?? 0)
+        _thoughts = State(initialValue: book.personalThoughts ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(spacing: 2) {
+                    ratingTrack
+                    HStack(spacing: 6) {
+                        adjustment("minus", label: "Decrease rating by a quarter star", step: -1)
+                        Text(quarterStars == 0 ? "Not rated" : "\(personalRatingNumber(quarterStars)) / 5")
+                            .font(.subheadline.monospacedDigit().weight(.semibold))
+                            .frame(minWidth: 76)
+                        adjustment("plus", label: "Increase rating by a quarter star", step: 1)
+                        Button("Clear") { quarterStars = 0 }
+                            .font(.subheadline)
+                            .foregroundStyle(quarterStars == 0 ? AppPalette.secondaryText : AppPalette.accent)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
+                            .disabled(quarterStars == 0)
+                            .accessibilityLabel("Clear Rating")
+                    }
+                    .buttonStyle(.plain)
+                }
+                .frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Thoughts")
+                        .font(.headline)
+                        .accessibilityAddTraits(.isHeader)
+                    TextEditor(text: $thoughts)
+                        .frame(maxHeight: .infinity)
+                        .padding(8)
+                        .scrollContentBackground(.hidden)
+                        .background(AppPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(AppPalette.border))
+                        .scrollDismissesKeyboard(.interactively)
+                        .accessibilityLabel("Thoughts")
+                }
+            }
+            .padding(20)
+            .disabled(saving)
+            .background(AppPalette.background)
+            .foregroundStyle(AppPalette.text)
+            .navigationTitle("Your Rating")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.disabled(saving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", action: save).disabled(saving)
+                }
+            }
+        }
+        .interactiveDismissDisabled(saving)
+        .alert("Couldn’t save your rating and thoughts", isPresented: $saveFailed) {
+            Button("OK", role: .cancel) {}
+        }
+    }
+
+    private var ratingTrack: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            PersonalRatingStars(quarterStars: quarterStars, starWidth: width / 5)
+                .font(.system(size: min(34, width / 6)))
+                .frame(width: width, height: geometry.size.height)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { setRating(at: $0.location.x, width: width) }
+                        .onEnded { setRating(at: $0.location.x, width: width) }
+                )
+        }
+        .frame(maxWidth: 280)
+        .frame(height: 52)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Your Rating")
+        .accessibilityValue(quarterStars == 0 ? "Not rated" : "\(personalRatingNumber(quarterStars)) out of 5")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: adjustRating(by: 1)
+            case .decrement: adjustRating(by: -1)
+            @unknown default: break
+            }
+        }
+    }
+
+    private func setRating(at location: CGFloat, width: CGFloat) {
+        guard width > 0 else { return }
+        let offset = layoutDirection == .rightToLeft ? width - location : location
+        let fraction = min(1, max(0, offset / width))
+        quarterStars = max(1, Int((fraction * 20).rounded(.up)))
+    }
+
+    private func adjustRating(by step: Int) {
+        quarterStars = min(20, max(0, quarterStars + step))
+    }
+
+    private func adjustment(_ symbol: String, label: String, step: Int) -> some View {
+        let enabled = (0...20).contains(quarterStars + step)
+        return Button { adjustRating(by: step) } label: {
+            Image(systemName: symbol)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppPalette.accent)
+                .frame(width: 32, height: 32)
+                .background(AppPalette.secondarySurface, in: Circle())
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .opacity(enabled ? 1 : 0.4)
+        .disabled(!enabled)
+        .accessibilityLabel(label)
+    }
+
+    private func save() {
+        guard !saving else { return }
+        saving = true
+        let rating = quarterStars == 0 ? nil : quarterStars
+        let draft = thoughts
+        Task {
+            defer { saving = false }
+            do {
+                try await environment.database.savePersonalReview(quarterStars: rating, thoughts: draft, for: book.id)
+                dismiss()
+            } catch {
+                saveFailed = true
+            }
+        }
+    }
+}
+
+private struct PersonalRatingStars: View {
+    let quarterStars: Int
+    var starWidth: CGFloat? = nil
+
+    var body: some View {
+        HStack(spacing: starWidth == nil ? 4 : 0) {
+            ForEach(0..<5) { star in
+                let fill = CGFloat(min(4, max(0, quarterStars - star * 4))) / 4
+                Image(systemName: "star")
+                    .foregroundStyle(Color.gray)
+                    .overlay {
+                        GeometryReader { geometry in
+                            Image(systemName: "star.fill")
+                                .foregroundStyle(AppPalette.accent)
+                                .frame(width: geometry.size.width, height: geometry.size.height)
+                                .mask(alignment: .leading) {
+                                    Rectangle().frame(width: geometry.size.width * fill)
+                                }
+                        }
+                    }
+                    .frame(width: starWidth)
+            }
+        }
+    }
+}
+
+private func personalRatingNumber(_ quarterStars: Int) -> String {
+    (Double(quarterStars) / 4).formatted(.number.precision(.fractionLength(0...2)))
+}
+
 func metadataRow(_ title: String, value: String) -> some View {
     metadataRow(title, value: Text(value))
 }
@@ -518,16 +685,19 @@ func detailChip(_ text: String) -> some View {
 }
 
 struct DetailsActionStyle: ButtonStyle {
+    var cornerRadius: CGFloat = 10
+
     func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius)
         configuration.label
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(AppPalette.accent)
             .padding(.horizontal, 12)
             .frame(minHeight: 44)
             .background(configuration.isPressed ? AppPalette.accent.opacity(0.12) : AppPalette.surface,
-                        in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AppPalette.accent.opacity(0.45), lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+                        in: shape)
+            .overlay(shape.strokeBorder(AppPalette.accent.opacity(0.45), lineWidth: 1))
+            .contentShape(shape)
     }
 }
 

@@ -93,7 +93,9 @@ struct Book: Codable, Identifiable, Hashable, Sendable, FetchableRecord, Persist
     /// 0…1 through the whole book
     var progression: Double
     var readingStatus: ReadingStatus = .tbr
-    var personalRating: Int? = nil
+    /// 1…20 quarter stars, or nil when unrated.
+    var personalRatingQuarterStars: Int? = nil
+    var personalThoughts: String? = nil
 
     enum Columns {
         static let title = Column(CodingKeys.title)

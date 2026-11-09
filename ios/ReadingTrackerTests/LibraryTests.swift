@@ -281,6 +281,39 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(saved.lastOpenedAt, Date(timeIntervalSince1970: 100))
     }
 
+    func testPersonalReviewMigratesWholeStarsAndKeepsThoughtsWithoutRating() async throws {
+        let queue = try DatabaseQueue()
+        try AppDatabase.migrator.migrate(queue, upTo: "v15-personal-reading")
+        try await queue.write { db in
+            try db.execute(sql: """
+                INSERT INTO book (id, title, author, format, fileName, size, addedAt, progression, personalRating)
+                VALUES ('legacy', 'Existing Book', 'Author', 'epub', 'legacy.epub', 100, '2026-01-01 00:00:00', 0.42, 3)
+                """)
+        }
+
+        let migrated = try AppDatabase(queue)
+        let legacy = try await migrated.book(id: "legacy")
+        XCTAssertEqual(legacy?.personalRatingQuarterStars, 12)
+        XCTAssertNil(legacy?.personalThoughts)
+
+        let thoughts = "First impression.\nA second thought."
+        try await migrated.savePersonalReview(quarterStars: 15, thoughts: thoughts, for: "legacy")
+        let reviewed = try await migrated.book(id: "legacy")
+        XCTAssertEqual(reviewed?.personalRatingQuarterStars, 15)
+        XCTAssertEqual(reviewed?.personalThoughts, thoughts)
+
+        try await migrated.savePersonalReview(quarterStars: nil, thoughts: thoughts, for: "legacy")
+        let cleared = try await migrated.book(id: "legacy")
+        XCTAssertNil(cleared?.personalRatingQuarterStars)
+        XCTAssertEqual(cleared?.personalThoughts, thoughts)
+        XCTAssertEqual(cleared?.progression, 0.42)
+
+        try await migrated.savePersonalReview(quarterStars: nil, thoughts: "Updated thoughts", for: "legacy")
+        let thoughtsOnly = try await migrated.book(id: "legacy")
+        XCTAssertNil(thoughtsOnly?.personalRatingQuarterStars)
+        XCTAssertEqual(thoughtsOnly?.personalThoughts, "Updated thoughts")
+    }
+
     func testStartingToReadOnlyPromotesTBR() async throws {
         let book = try await importer.importBook(from: fixture("sample", "pdf"))
         try await database.markReadingIfTBR(id: book.id)
