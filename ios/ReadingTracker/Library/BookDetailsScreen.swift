@@ -222,17 +222,28 @@ struct BookDetailsScreen: View {
 
     private var informationCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                heading("Genres")
-                Spacer(minLength: 0)
-                Button { showingGenres = true } label: { Label("Edit Genres", systemImage: "pencil") }
-                    .buttonStyle(DetailsActionStyle())
-            }
-            DetailsFlowLayout(spacing: 8) {
-                if book.genres.isEmpty {
-                    detailChip("Unclassified")
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    heading("Genres")
+                    Spacer(minLength: 0)
+                    Button { showingGenres = true } label: {
+                        Label("Edit", systemImage: "pencil")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppPalette.accent)
+                            .padding(.top, 12)
+                            .frame(minWidth: 44, minHeight: 44, alignment: .topTrailing)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Edit Genres")
+                    .padding(.top, -12)
                 }
-                ForEach(book.genres) { detailChip($0.displayName) }
+                DetailsFlowLayout(spacing: 8) {
+                    if book.genres.isEmpty {
+                        detailChip("Unclassified")
+                    }
+                    ForEach(book.genres) { detailChip($0.displayName) }
+                }
             }
             Divider().overlay(AppPalette.border)
             metadataRow("Pages", value: pageCountLabel)
