@@ -4,7 +4,7 @@ import {Catalog,validateInput} from './catalog.mjs';
 import {createServer} from './server.mjs';
 const book = {id:42,title:'Test Book',description:'A wizard explores an enchanted forest.',
   contributions:[{author:{name:'Test Author'}}],book_series:[{position:2.5,series:{name:'Wizard Series'}}],
-  cached_tags:{Genre:[{tag:'Fantasy'}],Mood:[{tag:'Dark'},{tag:'Dark'}],ContentWarning:[{tag:'Blood'}]}};
+  cached_tags:{Genre:[{tag:'Fantasy'}],Mood:[{tag:'Dark'},{tag:'Dark'}],'Content Warning':[{tag:'Blood'}]}};
 const input = {title:'Test Book',author:'Test Author'};
 function setup(responder,options={}) {
   const requests=[];

@@ -30,6 +30,12 @@ function tagNames(tags) {
   return Array.isArray(tags) ? [...new Set(tags.map(t => typeof t === 'string' ? t : t?.tag ?? t?.name)
     .filter(t => typeof t === 'string' && t.trim()).map(t => t.trim().slice(0,100)))].slice(0,30) : [];
 }
+function warningTags(categories) {
+  return Object.entries(categories ?? {}).flatMap(([category, tags]) => {
+    const name = normalize(category).replaceAll(' ', '');
+    return (name === 'contentwarning' || name === 'contentwarnings') && Array.isArray(tags) ? tags : [];
+  });
+}
 function metadata(record, edition = null, matchedISBN = null) {
   if (!Number.isInteger(record?.id) || record.id <= 0) throw new CatalogError(502,'invalid_catalog_response');
   return {
@@ -39,7 +45,7 @@ function metadata(record, edition = null, matchedISBN = null) {
       .map(s => ({name: s.series.name.slice(0,300), position: Number.isFinite(s.position) ? s.position : null})),
     genres: tagNames(record.cached_tags?.Genre),
     moods: tagNames(record.cached_tags?.Mood),
-    contentWarnings: tagNames(record.cached_tags?.ContentWarning),
+    contentWarnings: tagNames(warningTags(record.cached_tags)),
     exactEdition: edition && Number.isInteger(edition.id) && edition.id > 0 && Number.isInteger(edition.pages) && edition.pages > 0
       ? {id: edition.id, isbn: matchedISBN, pages: edition.pages} : null
   };
