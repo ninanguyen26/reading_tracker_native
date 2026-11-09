@@ -138,8 +138,9 @@ enum SubjectGenreMapping {
     }
 
     static func classifyHardcover(_ tags: [String]) -> GenreDecision? {
-        var candidates = matches(in: tags)
-        if hasRomantasy(tags) { candidates.formUnion([.romance, .fantasy]) }
+        let subjects = tags.flatMap { $0.components(separatedBy: ":") }
+        var candidates = matches(in: subjects)
+        if hasRomantasy(subjects) { candidates.formUnion([.romance, .fantasy]) }
         guard !candidates.isEmpty else { return nil }
         return GenreDecision(genres: BookGenre.allCases.filter(candidates.contains), source: "hardcover")
     }

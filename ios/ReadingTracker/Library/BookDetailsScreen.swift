@@ -579,9 +579,9 @@ enum BookDetailsText {
         values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
     }
 
-    static func series(_ series: BookSeries) -> String {
-        guard let position = series.position, position.isFinite else { return series.name }
-        return "\(series.name) · Book \(position.formatted(.number.grouping(.never)))"
+    static func series(_ name: String, position: Double?) -> String {
+        guard let position, position.isFinite else { return name }
+        return "#\(position.formatted(.number.grouping(.never))) of \(name)"
     }
 
     static func languageCode(_ value: String?) -> String? {

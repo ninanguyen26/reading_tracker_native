@@ -4,6 +4,7 @@ import SwiftUI
 struct BookCoverView: View {
     let book: Book
     let coverURL: URL?
+    var showsPlaceholderTitle = true
 
     // Match the app's categorical hues; soft fills keep text readable in both appearances.
     private static let palette = AppPalette.chartColors
@@ -23,7 +24,7 @@ struct BookCoverView: View {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
-                } else {
+                } else if showsPlaceholderTitle {
                     VStack(alignment: .leading) {
                         Text(book.title)
                             .font(.system(.headline, design: .serif))
@@ -38,6 +39,11 @@ struct BookCoverView: View {
                     .padding(10)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .background(placeholderColor.opacity(0.18))
+                } else {
+                    Image(systemName: "book.closed")
+                        .foregroundStyle(AppPalette.secondaryText)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(placeholderColor.opacity(0.18))
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))

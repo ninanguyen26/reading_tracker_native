@@ -45,9 +45,10 @@ struct BookDiscoverySection: View {
                     }
                     ForEach(embeddedSeries, id: \.self) { series in
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(BookDetailsText.series(series)).font(.subheadline.weight(.semibold))
+                            Text(BookDetailsText.series(series.name, position: series.position))
+                                .font(.subheadline.weight(.semibold))
                             coverTile(title: book.title, position: nil, current: true) {
-                                BookCoverView(book: book, coverURL: coverURL)
+                                BookCoverView(book: book, coverURL: coverURL, showsPlaceholderTitle: false)
                             }
                         }
                     }
@@ -86,9 +87,11 @@ struct BookDiscoverySection: View {
     }
 
     private func seriesRow(_ series: DiscoverySeries) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let currentEntry = series.entries.first { $0.id == discovery?.bookID }
+        return VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(series.name).font(.subheadline.weight(.semibold))
+                Text(BookDetailsText.series(series.name, position: series.currentPosition ?? currentEntry?.position))
+                    .font(.subheadline.weight(.semibold))
                 Spacer(minLength: 8)
                 if series.nextOffset != nil {
                     Button("View Series") { destination = .series(series) }
@@ -96,7 +99,7 @@ struct BookDiscoverySection: View {
                         .frame(minHeight: 44)
                 }
             }
-            if let currentID = discovery?.bookID, !series.entries.contains(where: { $0.id == currentID }) {
+            if discovery != nil, currentEntry == nil {
                 Text(series.currentPosition.map { "Current book: \(positionLabel($0))" } ?? "Current book in this series")
                     .font(.caption)
                     .foregroundStyle(AppPalette.secondaryText)
@@ -125,13 +128,13 @@ struct BookDiscoverySection: View {
         let tile = coverTile(title: current ? book.title : related.title, position: position, current: current) {
             if let local, let file = local.coverFileName,
                current || related.language == nil || related.language == BookDiscoveryClient.language(for: local) {
-                BookCoverView(book: local, coverURL: environment.storage.url(for: file))
+                BookCoverView(book: local, coverURL: environment.storage.url(for: file), showsPlaceholderTitle: false)
             } else {
-                DiscoveryCover(book: related)
+                DiscoveryCover(book: related, showsPlaceholderTitle: false)
             }
         }
         if current {
-            tile.accessibilityElement(children: .combine)
+            tile
         } else {
             Button { open(related) } label: { tile }
                 .buttonStyle(.plain)
@@ -150,16 +153,16 @@ struct BookDiscoverySection: View {
             if let position {
                 Text(positionLabel(position)).font(.caption2).foregroundStyle(AppPalette.secondaryText)
             }
-            Text(title)
-                .font(.caption.weight(.medium))
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
             if current {
                 Text("Current book").font(.caption2.weight(.semibold)).foregroundStyle(AppPalette.accent)
             }
         }
         .frame(width: coverWidth, alignment: .leading)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue([position.map(positionLabel), current ? "Current book" : nil]
+            .compactMap { $0 }.joined(separator: ", "))
     }
 
     private func heading(_ title: String) -> some View {
@@ -298,8 +301,8 @@ private struct DiscoveryBookPreview: View {
                             Text(synopsis).font(.subheadline).lineSpacing(4).textSelection(.enabled)
                         }
                     }
-                    if let genres = metadata?.genres, !genres.isEmpty {
-                        tagSection("Genres", tags: genres)
+                    if let metadata, let genres = SubjectGenreMapping.classifyHardcover(metadata.genres)?.genres {
+                        tagSection("Genres", tags: genres.map(\.displayName))
                     }
                     if let moods = metadata?.moods, !moods.isEmpty {
                         tagSection("Moods", tags: moods.map { $0.lowercased() })
@@ -317,7 +320,11 @@ private struct DiscoveryBookPreview: View {
                             }
                         }
                     }
-                    Link("View on Hardcover", destination: book.sourceURL)
+                    Link(destination: book.sourceURL) {
+                        Label("View on Hardcover", systemImage: "arrow.up.right.square")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(DetailsActionStyle())
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -361,6 +368,7 @@ private struct DiscoveryBookPreview: View {
 
 private struct DiscoveryCover: View {
     let book: DiscoveryBook
+    var showsPlaceholderTitle = true
     @State private var sourceIndex = 0
 
     var body: some View {
@@ -392,10 +400,13 @@ private struct DiscoveryCover: View {
     }
 
     private var placeholder: some View {
-        Text(book.title)
-            .font(.caption.weight(.semibold))
-            .lineLimit(4)
-            .padding(8)
+        Group {
+            if showsPlaceholderTitle {
+                Text(book.title).font(.caption.weight(.semibold)).lineLimit(4).padding(8)
+            } else {
+                Image(systemName: "book.closed").foregroundStyle(AppPalette.secondaryText)
+            }
+        }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(AppPalette.secondarySurface)
     }
