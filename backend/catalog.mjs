@@ -65,6 +65,49 @@ function metadata(record, edition = null, matchedISBN = null) {
   };
 }
 
+const previewCount = 6;
+const seriesPageSize = 24;
+const authorRole = '_or:[{contribution:{_is_null:true}},{contribution:{_eq:"Author"}},{contribution:{_eq:"author"}}]';
+const cardFields = 'id title description cached_image default_cover_edition { isbn_13 isbn_10 } ' +
+  'contributions(where:{' + authorRole + '},limit:4) { author { name } }';
+const seriesOrder = 'order_by:[{position:asc_nulls_last},{book_id:asc},{id:asc}]';
+
+function coverURL(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname.endsWith('.hardcover.app') &&
+      !url.username && !url.password && !url.port ? url.href : null;
+  } catch { return null; }
+}
+
+function discoveryCard(book) {
+  if (!Number.isInteger(book?.id) || book.id <= 0 || typeof book.title !== 'string' || !book.title.trim()) return null;
+  const edition = book.default_cover_edition;
+  return {
+    id: book.id,
+    title: book.title.slice(0,500),
+    author: [...new Set((book.contributions ?? []).map(item => item.author?.name).filter(Boolean))]
+      .join(', ').slice(0,300),
+    description: typeof book.description === 'string' ? book.description.slice(0,4000) : null,
+    coverURL: coverURL(book.cached_image?.url),
+    isbns: [...new Set([isbn(edition?.isbn_13), isbn(edition?.isbn_10)].filter(Boolean))]
+  };
+}
+
+function seriesEntries(members) {
+  const seen = new Set();
+  return members.flatMap(member => {
+    const book = discoveryCard(member.book);
+    if (!book || seen.has(book.id)) return [];
+    seen.add(book.id);
+    return [{book, position: Number.isFinite(member.position) ? member.position : null}];
+  });
+}
+
+function validCatalogID(id) {
+  return Number.isInteger(id) && id > 0 && id <= 2147483647;
+}
+
 /// One Render process, with bounded memory and no persisted user/library data.
 export class Catalog {
   constructor({token, fetcher = fetch, now = Date.now, dailyLimit = 4500, minuteLimit = 50, interval = 1100} = {}) {
@@ -90,18 +133,97 @@ export class Catalog {
     const value = validateInput(input);
     // Include fallback identifiers: the same missing ISBN can accompany different title/author pairs.
     const key = createHash('sha256').update(JSON.stringify(value)).digest('hex');
+    return this.cached(key, () => this.match(value));
+  }
+  async cached(key, load) {
     const cached = this.cache.get(key);
     if (cached && cached.until > this.now()) return cached.value;
     if (this.inflight.has(key)) return this.inflight.get(key);
     if (!this.token) throw new CatalogError(503,'catalog_not_configured');
     if (this.inflight.size >= 12) throw new CatalogError(503,'catalog_busy',15);
-    const job = this.match(value).then(result => {
+    const job = load().then(result => {
       if (this.cache.size >= 1000) this.cache.delete(this.cache.keys().next().value);
       this.cache.set(key,{value: result, until: this.now() + (result ? 86400000 : 3600000)});
       return result;
     }).finally(() => this.inflight.delete(key));
     this.inflight.set(key,job);
     return job;
+  }
+  async discovery(input) {
+    let bookID;
+    if (input && Object.hasOwn(input, 'bookID')) {
+      if (Object.keys(input).length !== 1 || !validCatalogID(input.bookID)) throw new CatalogError(400,'invalid_discovery');
+      bookID = input.bookID;
+    } else {
+      bookID = (await this.lookup(input))?.bookID;
+    }
+    return bookID ? this.cached(`discovery:${bookID}`, () => this.relatedBooks(bookID)) : null;
+  }
+  async relatedBooks(bookID) {
+    const result = await this.query(`query Discovery($id:Int!) {
+      books(where:{id:{_eq:$id}},limit:1) {
+        id
+        contributions(where:{${authorRole}},order_by:{id:asc},limit:5) { author_id }
+        book_series(order_by:[{featured:desc},{id:asc}],limit:5) {
+          position
+          series {
+            id name
+            book_series(${seriesOrder},limit:${previewCount+1}) { position book { ${cardFields} } }
+          }
+        }
+      }
+    }`, {id:bookID});
+    const current = result.books?.[0];
+    if (!current) return null;
+
+    const seenSeries = new Set();
+    const series = (current.book_series ?? []).flatMap(({series, position}) => {
+      if (!validCatalogID(series?.id) || typeof series.name !== 'string' || !series.name.trim() ||
+          seenSeries.has(series.id)) return [];
+      seenSeries.add(series.id);
+      const members = series.book_series ?? [];
+      return [{
+        id: series.id,
+        name: series.name.slice(0,300),
+        currentPosition: Number.isFinite(position) ? position : null,
+        entries: seriesEntries(members.slice(0,previewCount)),
+        nextOffset: members.length > previewCount ? previewCount : null
+      }];
+    });
+    const authors = [...new Set((current.contributions ?? []).map(item => item.author_id).filter(validCatalogID))];
+    let authorBooks = [];
+    if (authors.length) {
+      const result = await this.query(`query AuthorBooks($id:Int!,$authors:[Int!]!,$series:[Int!]!) {
+        books(where:{
+          id:{_neq:$id},canonical_id:{_is_null:true},
+          contributions:{author_id:{_in:$authors},${authorRole}},
+          _not:{book_series:{series_id:{_in:$series}}}
+        },order_by:[{users_count:desc_nulls_last},{id:asc}],limit:${previewCount}) {
+          ${cardFields}
+        }
+      }`, {id:bookID, authors, series:[...seenSeries]});
+      authorBooks = (result.books ?? []).map(discoveryCard).filter(Boolean);
+    }
+    return {bookID:current.id, series, authorBooks};
+  }
+  async seriesPage(input) {
+    if (!input || typeof input !== 'object' || Array.isArray(input) ||
+        Object.keys(input).some(key => !['seriesID','offset'].includes(key)) ||
+        !validCatalogID(input.seriesID) || !Number.isInteger(input.offset) ||
+        input.offset < 0 || input.offset > 10000) throw new CatalogError(400,'invalid_series_page');
+    const {seriesID, offset} = input;
+    return this.cached(`series:${seriesID}:${offset}`, async () => {
+      const result = await this.query(`query SeriesPage($id:Int!,$offset:Int!) {
+        series(where:{id:{_eq:$id}},limit:1) {
+          book_series(${seriesOrder},offset:$offset,limit:${seriesPageSize+1}) { position book { ${cardFields} } }
+        }
+      }`, {id:seriesID, offset});
+      const members = result.series?.[0]?.book_series ?? [];
+      return {
+        entries: seriesEntries(members.slice(0,seriesPageSize)),
+        nextOffset: members.length > seriesPageSize ? offset+seriesPageSize : null
+      };
+    });
   }
   async query(query, variables) {
     const time = this.now();

@@ -52,6 +52,54 @@ test('duplicate ISBNs and ambiguous title matches rejected',async()=>{
   assert.equal(await catalog.lookup({...input,isbn:'9780140328721'}),null);
   assert.equal(await catalog.lookup(input),null);
 });
+test('discovery preserves series order and uses exact author and series IDs', async () => {
+  const members = Array.from({length: 7}, (_, index) => ({
+    position: index === 2 ? 2.5 : index + 1,
+    book: {
+      id: index === 2 ? 42 : 50 + index,
+      title: `Series book ${index + 1}`,
+      cached_image: {url: index ? 'https://assets.hardcover.app/cover.jpg' : 'https://untrusted.example/cover.jpg'},
+      default_cover_edition: {isbn_13:'9780140328721'},
+      contributions: [{author:{name:'Test Author'}}]
+    }
+  }));
+  const standalone = {id:100,title:'Standalone'};
+  const {catalog,requests} = setup(({query}) => {
+    if (query.includes('query Book(')) return result({books:[book]});
+    if (query.includes('query AuthorBooks')) return result({books:[standalone]});
+    return result({books:[{id:42,contributions:[{author_id:17},{author_id:17}],
+      book_series:[{position:2.5,series:{id:9,name:'Wizard Series',book_series:members}}]}]});
+  });
+  const discovery = await catalog.discovery(input);
+  assert.equal(discovery.bookID,42);
+  assert.equal(discovery.series[0].currentPosition,2.5);
+  assert.deepEqual(discovery.series[0].entries.map(entry => entry.position),[1,2,2.5,4,5,6]);
+  assert.equal(discovery.series[0].entries[2].book.id,42);
+  assert.equal(discovery.series[0].entries[0].book.coverURL,null);
+  assert.equal(discovery.series[0].entries[1].book.coverURL,'https://assets.hardcover.app/cover.jpg');
+  assert.deepEqual(discovery.series[0].entries[0].book.isbns,['9780140328721']);
+  assert.equal(discovery.series[0].nextOffset,6);
+  assert.deepEqual(discovery.authorBooks.map(book => book.id),[100]);
+  assert.deepEqual(requests[2].body.variables,{id:42,authors:[17],series:[9]});
+  assert.match(requests[2].body.query,/contributions:\{author_id:\{_in:\$authors\}/);
+  assert.match(requests[2].body.query,/_not:\{book_series:\{series_id:\{_in:\$series\}/);
+  assert.deepEqual(await catalog.discovery({bookID:42}),discovery);
+  assert.equal(requests.length,3);
+});
+test('series paging uses the same order and has no next page at the end', async () => {
+  const {catalog,requests} = setup(({query}) => result(query.includes('SeriesPage')
+    ? {series:[{book_series:[{position:7,book:{id:7,title:'Book 7'}}]}]}
+    : {books:[{id:42,book_series:[{series:{id:9,name:'Short Series',book_series:[{position:1,book}]}}]}]}));
+  const discovery = await catalog.discovery({bookID:42});
+  assert.equal(discovery.series[0].nextOffset,null);
+  const page = await catalog.seriesPage({seriesID:9,offset:6});
+  assert.equal(page.entries[0].book.id,7);
+  assert.equal(page.nextOffset,null);
+  assert.deepEqual(requests[1].body.variables,{id:9,offset:6});
+  for (const request of requests) assert.match(request.body.query,/position:asc_nulls_last/);
+  await assert.rejects(() => catalog.seriesPage({seriesID:9,offset:-1}), {status:400});
+  await assert.rejects(() => catalog.discovery({bookID:42,query:'ignored'}), {status:400});
+});
 test('missing ISBN falls back to title with no edition pages',async()=>{
   const {catalog,requests}=setup(body=>result(body.variables.isbn?{editions:[]}:{books:[book]}));
   assert.equal((await catalog.lookup({...input,isbn:'9780140328721'})).exactEdition,null);
@@ -104,5 +152,9 @@ test('health does not call Hardcover; public HTTP lookup returns sanitized metad
     assert.equal(bad.status,400);
     const oversized=await fetch(url+'/v1/metadata',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...input,title:'x'.repeat(5000)})});
     assert.equal(oversized.status,413);
+    const discovery=await fetch(url+'/v1/discovery',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"bookID":42}'});
+    assert.equal(discovery.status,200);assert.equal((await discovery.json()).discovery.bookID,42);
+    const invalidPage=await fetch(url+'/v1/series',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"seriesID":5,"offset":-1}'});
+    assert.equal(invalidPage.status,400);
   } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });

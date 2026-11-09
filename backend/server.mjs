@@ -12,7 +12,8 @@ export function createServer(catalog = new Catalog({token:process.env.HARDCOVER_
     if ((req.method === 'GET' || req.method === 'HEAD') && req.url === '/health') {
       return send(200,{status:'ok',catalogConfigured:Boolean(catalog.token)});
     }
-    if (req.url !== '/v1/metadata' || req.method !== 'POST') return send(404,{error:'not_found'});
+    if (req.method !== 'POST' || !['/v1/metadata','/v1/discovery','/v1/series'].includes(req.url))
+      return send(404,{error:'not_found'});
     try {
       // Render appends its verified connecting IP; do not trust the leftmost caller-supplied value.
       const forwarded = String(req.headers['x-forwarded-for'] ?? '').split(',').map(v=>v.trim());
@@ -28,8 +29,9 @@ export function createServer(catalog = new Catalog({token:process.env.HARDCOVER_
       let input;
       try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
       catch { throw new CatalogError(400,'invalid_json'); }
-      const metadata = await catalog.lookup(input);
-      send(200,{metadata});
+      if (req.url === '/v1/discovery') return send(200,{discovery:await catalog.discovery(input)});
+      if (req.url === '/v1/series') return send(200,await catalog.seriesPage(input));
+      send(200,{metadata:await catalog.lookup(input)});
     } catch (error) {
       const known = error instanceof CatalogError;
       const status = known ? error.status : 503;
