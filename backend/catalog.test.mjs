@@ -245,6 +245,13 @@ test('health does not call Hardcover; public HTTP lookup returns sanitized metad
     assert.equal(oversized.status,413);
     const discovery=await fetch(url+'/v1/discovery',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"bookID":42}'});
     assert.equal(discovery.status,200);assert.equal((await discovery.json()).discovery.bookID,42);
+    const preview=await fetch(url+'/v1/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"bookID":42}'});
+    assert.equal(preview.status,200);
+    assert.deepEqual((await preview.json()).preview,{genres:['Fantasy'],moods:['Dark'],releaseYear:null,
+      rating:4.24,ratingsCount:1283,language:null});
+    const invalidPreview=await fetch(url+'/v1/preview',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:'{"bookID":42,"query":"arbitrary"}'});
+    assert.equal(invalidPreview.status,400);
     const invalidPage=await fetch(url+'/v1/series',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"seriesID":5,"offset":-1}'});
     assert.equal(invalidPage.status,400);
   } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}

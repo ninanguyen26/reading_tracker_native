@@ -404,11 +404,7 @@ struct BookDetailsScreen: View {
                             value: languages.map { Locale.current.localizedString(forIdentifier: $0) ?? $0 }.joined(separator: ", "))
             }
             if let rating = book.hardcoverRating, let count = book.hardcoverRatingsCount, count > 0 {
-                let average = rating.formatted(.number.precision(.fractionLength(1)))
-                let countLabel = "\(count.formatted()) \(count == 1 ? "rating" : "ratings")"
-                metadataRow("Hardcover Rating", value: Text("\(average) \(Image(systemName: "star.fill"))/5 · \(countLabel)"))
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Hardcover rating, \(average) out of 5, \(countLabel)")
+                hardcoverRatingRow(rating, count: count)
                     .accessibilityIdentifier("hardcover-rating")
             }
         }
@@ -489,28 +485,36 @@ struct BookDetailsScreen: View {
             .foregroundStyle(AppPalette.secondaryText)
             .accessibilityAddTraits(.isHeader)
     }
+}
 
-    private func metadataRow(_ title: String, value: String) -> some View {
-        metadataRow(title, value: Text(value))
-    }
+func metadataRow(_ title: String, value: String) -> some View {
+    metadataRow(title, value: Text(value))
+}
 
-    private func metadataRow(_ title: String, value: Text) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(title).font(.caption).foregroundStyle(AppPalette.secondaryText)
-                .frame(width: 120, alignment: .leading)
-            value.font(.subheadline).textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
+private func metadataRow(_ title: String, value: Text) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 12) {
+        Text(title).font(.caption).foregroundStyle(AppPalette.secondaryText)
+            .frame(width: 120, alignment: .leading)
+        value.font(.subheadline).textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
 
-    private func detailChip(_ text: String) -> some View {
-        Text(text)
-            .font(.caption)
-            .foregroundStyle(AppPalette.text)
-            .padding(.horizontal, 10).padding(.vertical, 7)
-            .background(AppPalette.secondarySurface, in: RoundedRectangle(cornerRadius: 8))
-            .fixedSize(horizontal: false, vertical: true)
-    }
+func hardcoverRatingRow(_ rating: Double, count: Int) -> some View {
+    let average = rating.formatted(.number.precision(.fractionLength(1)))
+    let countLabel = "\(count.formatted()) \(count == 1 ? "rating" : "ratings")"
+    return metadataRow("Hardcover Rating", value: Text("\(average) \(Image(systemName: "star.fill"))/5 · \(countLabel)"))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Hardcover rating, \(average) out of 5, \(countLabel)")
+}
+
+func detailChip(_ text: String) -> some View {
+    Text(text)
+        .font(.caption)
+        .foregroundStyle(AppPalette.text)
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .background(AppPalette.secondarySurface, in: RoundedRectangle(cornerRadius: 8))
+        .fixedSize(horizontal: false, vertical: true)
 }
 
 struct DetailsActionStyle: ButtonStyle {
@@ -537,7 +541,7 @@ extension View {
 }
 
 /// Content-sized chips wrap naturally, including with larger accessibility text.
-private struct DetailsFlowLayout: Layout {
+struct DetailsFlowLayout: Layout {
     var spacing: CGFloat
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         arrange(subviews, width: proposal.width ?? 600).size
@@ -580,6 +584,29 @@ enum BookDetailsText {
         return "\(series.name) · Book \(position.formatted(.number.grouping(.never)))"
     }
 
+    static func languageCode(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let identifier = Locale.canonicalLanguageIdentifier(from: value.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard let code = Locale.Language(identifier: identifier).languageCode,
+              let normalized = code.identifier(.alpha2) ?? code.identifier(.alpha3),
+              !["und", "mul", "zxx"].contains(normalized) else { return nil }
+        return normalized
+    }
+
+    static func previewSynopsis(_ value: String?) -> String? {
+        guard let text = description(value) else { return nil }
+        let lines = text.components(separatedBy: .newlines).filter { line in
+            catalogExtent.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) == nil
+        }
+        return usableDescription(lines.joined(separator: "\n"))
+    }
+
+    private static let catalogExtent: NSRegularExpression = {
+        let extent = #"(?:\d+(?:\s*[-–]\s*\d+)?\s*(?:pages?|pp?\.?|leaves)|\d+(?:[.,]\d+)?\s*(?:cm|mm|inches|in\.?)|ISBN(?:[- ](?:10|13))?\s*:?\s*(?:[0-9][- ]?){9,12}[0-9X])"#
+        return try! NSRegularExpression(pattern: #"^\s*\#(extent)(?:\s*[,;:]\s*\#(extent))*[.;]?\s*$"#,
+                                        options: .caseInsensitive)
+    }()
+
     /// Descriptions can contain HTML. Strip markup before decoding entities so
     /// remote images, stylesheets, and other embedded resources are never loaded.
     static func description(_ value: String?) -> String? {
@@ -607,7 +634,11 @@ enum BookDetailsText {
             } else { replacement = entities[token] }
             if let replacement { decoded.replaceSubrange(fullRange, with: replacement) }
         }
-        let cleaned = decoded.trimmingCharacters(in: .whitespacesAndNewlines)
+        return usableDescription(decoded)
+    }
+
+    private static func usableDescription(_ text: String) -> String? {
+        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = cleaned.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }.joined(separator: " ")

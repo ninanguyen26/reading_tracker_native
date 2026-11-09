@@ -234,6 +234,25 @@ export class Catalog {
     }
     return bookID ? this.cached(`discovery:${bookID}:${language}`, () => this.relatedBooks(bookID, language)) : null;
   }
+  async preview(input) {
+    if (!input || typeof input !== 'object' || Array.isArray(input) ||
+        Object.keys(input).length !== 1 || !validCatalogID(input.bookID)) throw new CatalogError(400,'invalid_preview');
+    const {bookID} = input;
+    return this.cached(`preview:${bookID}`, async () => {
+      const result = await this.query(`query BookPreview($id:Int!) {
+        books(where:{id:{_eq:$id}},limit:1) {
+          id release_year rating ratings_count cached_tags
+          default_cover_edition { ${editionLanguage} }
+        }
+      }`, {id:bookID});
+      const book = result.books?.[0];
+      if (!book) return null;
+      const {genres, moods, rating, ratingsCount, publicationYears:{releaseYear}} = metadata(book);
+      const language = book.default_cover_edition?.language;
+      return {genres, moods, releaseYear, rating, ratingsCount,
+        language:seriesLanguage(language?.code2) || seriesLanguage(language?.code3) || null};
+    });
+  }
   async relatedBooks(bookID, language) {
     const result = await this.query(`query Discovery($id:Int!,$language:String!) {
       books(where:{id:{_eq:$id}},limit:1) {

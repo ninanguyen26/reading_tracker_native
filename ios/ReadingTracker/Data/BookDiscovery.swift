@@ -59,21 +59,24 @@ struct BookDiscovery: Decodable, Sendable {
     let authorBooks: [DiscoveryBook]
 }
 
+struct DiscoveryPreviewMetadata: Decodable, Sendable {
+    let genres: [String]
+    let moods: [String]
+    let releaseYear: Int?
+    let rating: Double?
+    let ratingsCount: Int?
+    let language: String?
+}
+
 enum BookDiscoveryClient {
     private struct BookID: Encodable { let bookID: Int; var language: String? = nil }
     private struct Lookup: Encodable { let isbn: String?; let title: String; let author: String; var language: String? = nil }
     private struct Page: Encodable { let seriesID: Int; let offset: Int; var bookID: Int? = nil; var language: String? = nil }
     private struct Response: Decodable { let discovery: BookDiscovery? }
+    private struct PreviewResponse: Decodable { let preview: DiscoveryPreviewMetadata? }
 
     static func language(for book: Book) -> String? {
-        for value in book.languages {
-            let identifier = Locale.canonicalLanguageIdentifier(from: value.trimmingCharacters(in: .whitespacesAndNewlines))
-            guard let code = Locale.Language(identifier: identifier).languageCode,
-                  let normalized = code.identifier(.alpha2) ?? code.identifier(.alpha3),
-                  !["und", "mul", "zxx"].contains(normalized) else { continue }
-            return normalized
-        }
-        return nil
+        book.languages.lazy.compactMap(BookDetailsText.languageCode).first
     }
 
     static func discover(for book: Book) async throws -> BookDiscovery? {
@@ -101,6 +104,11 @@ enum BookDiscoveryClient {
             "series", body: Page(seriesID: id, offset: offset, bookID: currentBookID, language: language),
             legacyBody: Page(seriesID: id, offset: offset)
         )
+    }
+
+    static func preview(for bookID: Int) async throws -> DiscoveryPreviewMetadata? {
+        let response: PreviewResponse = try await request("preview", body: BookID(bookID: bookID), legacyBody: nil)
+        return response.preview
     }
 
     private static func request<Body: Encodable, Result: Decodable>(

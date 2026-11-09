@@ -32,6 +32,14 @@ final class OpenLibraryTests: XCTestCase {
         XCTAssertNotNil(BookDetailsText.description("这是一本关于友谊与冒险的小说。"))
     }
 
+    func testPreviewKeepsSynopsisAndDropsCatalogMeasurements() {
+        XCTAssertNil(BookDetailsText.previewSynopsis("<p>337 pages ; 21 cm</p>"))
+        XCTAssertNil(BookDetailsText.previewSynopsis("ISBN-13: 978-0-14-032872-1\nPaperback"))
+        XCTAssertEqual(BookDetailsText.previewSynopsis("A journey.\n337 pages ; 21 cm"), "A journey.")
+        XCTAssertEqual(BookDetailsText.previewSynopsis("She wrote 337 pages before disappearing."),
+                       "She wrote 337 pages before disappearing.")
+    }
+
     func testPlaceholderEditionFallsBackToSynopsisAndKeepsSingleWordSubjects() throws {
         let work = try record(#"{"key":"/works/OL1W","description":"A keeper watches over an isolated island.","subjects":["Fiction"]}"#)
         let edition = try record(#"{"key":"/books/OL1M","description":"Hardcover"}"#)
@@ -214,6 +222,24 @@ final class OpenLibraryTests: XCTestCase {
         let ambiguous = try await client.metadata(for: local)
         XCTAssertNil(ambiguous)
     }
+
+    func testPreviewSynopsisRequiresMatchingBookAndLanguage() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [AutomaticLookupTestProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let client = OpenLibraryClient(session: session)
+        let book = DiscoveryBook(id: 1, title: "Field Notes", author: "Jordan Lee", description: nil,
+                                 coverURL: nil, alternateCoverURLs: nil, isbns: [], language: "en")
+        let shared = DiscoveryBook(id: 2, title: "Shared", author: "Jordan Lee", description: nil,
+                                   coverURL: nil, alternateCoverURLs: nil, isbns: [], language: "en")
+        let english = try await client.previewSynopsis(for: book, language: "eng")
+        let french = try await client.previewSynopsis(for: book, language: "fr")
+        let ambiguous = try await client.previewSynopsis(for: shared, language: "en")
+        XCTAssertNotNil(english)
+        XCTAssertNil(french)
+        XCTAssertNil(ambiguous)
+    }
 }
 
 private actor ImportLookupStub: OpenLibraryEnriching {
@@ -240,7 +266,9 @@ private final class AutomaticLookupTestProtocol: URLProtocol {
             json = title == "Shared"
                 ? #"{"docs":[{"key":"/works/OL1W","title":"Shared","author_name":["Jordan Lee"]},{"key":"/works/OL2W","title":"Shared","author_name":["Jordan Lee"]}]}"#
                 : #"{"docs":[{"key":"/works/OL1W","title":"Field Notes","author_name":["Jordan Lee"]}]}"#
-        } else { json = #"{"key":"/works/OL1W","description":"Automatic description","subjects":["Nature"]}"# }
+        } else {
+            json = #"{"key":"/works/OL1W","description":"A naturalist records the changing seasons and the creatures that live along the coast. As winter approaches, a storm threatens the only path back to the village.","subjects":["Nature"]}"#
+        }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(json.utf8))
         client?.urlProtocolDidFinishLoading(self)

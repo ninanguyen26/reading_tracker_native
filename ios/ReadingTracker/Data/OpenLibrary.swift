@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import NaturalLanguage
 
 enum OpenLibraryISBN {
     static func normalize(_ value: String?) -> String? {
@@ -192,7 +193,7 @@ extension OpenLibraryEnriching {
     func exactEditionPages(for book: Book) async throws -> BookPageCount? { nil }
 }
 
-/// Requests follow imports or manual lookups. One per second, bounded caching,
+/// Requests follow imports, manual lookups, or an opened book preview. One per second, bounded caching,
 /// plus URLSession's persistent HTTP cache; never sends files or requests covers.
 actor OpenLibraryClient: OpenLibraryEnriching {
     static let shared: OpenLibraryClient = {
@@ -245,17 +246,54 @@ actor OpenLibraryClient: OpenLibraryEnriching {
                 // Unknown ISBNs can still have a reliable title-and-author match.
             }
         }
-        let title = Self.matchText(book.title)
-        let author = Self.matchText(book.author)
-        guard !title.isEmpty, !author.isEmpty, book.author != "Unknown author" else { return nil }
-        let results = try await search(title: book.title, author: book.author, isbn: "")
-        let matches = results.filter {
-            Self.matchText($0.title) == title &&
-            (Self.matchText(($0.author_name ?? []).joined(separator: ", ")) == author ||
-             ($0.author_name ?? []).contains { Self.matchText($0) == author })
-        }
-        guard Set(matches.map(\.key)).count == 1, let match = matches.first else { return nil }
+        guard let match = try await uniqueWork(title: book.title, author: book.author) else { return nil }
         return OpenLibraryMetadata(work: try await work(match.key), edition: nil)
+    }
+
+    func previewSynopsis(for book: DiscoveryBook, language: String) async throws -> String? {
+        guard let language = BookDetailsText.languageCode(language) else { return nil }
+        if let isbn = book.isbns.lazy.compactMap(OpenLibraryISBN.normalize).first {
+            do {
+                let edition: OpenLibraryRecord = try await fetch(URL(string: "https://openlibrary.org/isbn/\(isbn).json")!)
+                if Self.validKey(edition.key, kind: "books", suffix: "M") {
+                    let editionLanguages = edition.languages.compactMap(BookDetailsText.languageCode)
+                    if editionLanguages.isEmpty || editionLanguages.contains(language),
+                       let synopsis = Self.localizedSynopsis(edition.description, language: language) {
+                        return synopsis
+                    }
+                    let workKeys = Set(edition.workKeys)
+                    if workKeys.count == 1, let key = workKeys.first, Self.validKey(key, kind: "works", suffix: "W") {
+                        return Self.localizedSynopsis(try await work(key).description, language: language)
+                    }
+                }
+            } catch OpenLibraryError.notFound {
+                // Try a unique title-and-author match when the ISBN is unavailable.
+            }
+        }
+        guard let match = try await uniqueWork(title: book.title, author: book.author) else { return nil }
+        return Self.localizedSynopsis(try await work(match.key).description, language: language)
+    }
+
+    private func uniqueWork(title: String, author: String) async throws -> OpenLibraryMatch? {
+        let normalizedTitle = Self.matchText(title)
+        let normalizedAuthor = Self.matchText(author)
+        guard !normalizedTitle.isEmpty, !normalizedAuthor.isEmpty, author != "Unknown author" else { return nil }
+        let results = try await search(title: title, author: author, isbn: "")
+        let matches = results.filter {
+            Self.matchText($0.title) == normalizedTitle &&
+            (Self.matchText(($0.author_name ?? []).joined(separator: ", ")) == normalizedAuthor ||
+             ($0.author_name ?? []).contains { Self.matchText($0) == normalizedAuthor })
+        }
+        return Set(matches.map(\.key)).count == 1 ? matches.first : nil
+    }
+
+    private static func localizedSynopsis(_ value: String?, language: String) -> String? {
+        guard let text = BookDetailsText.previewSynopsis(value) else { return nil }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        guard let match = recognizer.languageHypotheses(withMaximum: 1).first,
+              match.value >= 0.75, BookDetailsText.languageCode(match.key.rawValue) == language else { return nil }
+        return text
     }
 
     private static func matchText(_ value: String) -> String {

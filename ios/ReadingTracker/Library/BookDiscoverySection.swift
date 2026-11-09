@@ -274,6 +274,13 @@ private struct DiscoverySeriesSheet: View {
 private struct DiscoveryBookPreview: View {
     let book: DiscoveryBook
     @Environment(\.dismiss) private var dismiss
+    @State private var metadata: DiscoveryPreviewMetadata?
+    @State private var fallbackSynopsis: String?
+
+    private var synopsis: String? { fallbackSynopsis ?? BookDetailsText.previewSynopsis(book.description) }
+    private var language: String? {
+        BookDetailsText.languageCode(book.language) ?? BookDetailsText.languageCode(metadata?.language)
+    }
 
     var body: some View {
         NavigationStack {
@@ -286,7 +293,30 @@ private struct DiscoveryBookPreview: View {
                             if !book.author.isEmpty { Text(book.author).foregroundStyle(AppPalette.secondaryText) }
                         }
                     }
-                    if let description = BookDetailsText.description(book.description) { Text(description) }
+                    if let synopsis {
+                        section("Description") {
+                            Text(synopsis).font(.subheadline).lineSpacing(4).textSelection(.enabled)
+                        }
+                    }
+                    if let genres = metadata?.genres, !genres.isEmpty {
+                        tagSection("Genres", tags: genres)
+                    }
+                    if let moods = metadata?.moods, !moods.isEmpty {
+                        tagSection("Moods", tags: moods.map { $0.lowercased() })
+                    }
+                    if metadata?.releaseYear != nil || language != nil || metadata?.rating != nil {
+                        section("Metadata") {
+                            if let year = metadata?.releaseYear {
+                                metadataRow("Release Year", value: String(year))
+                            }
+                            if let language {
+                                metadataRow("Language", value: Locale.current.localizedString(forLanguageCode: language) ?? language)
+                            }
+                            if let rating = metadata?.rating, let count = metadata?.ratingsCount, count > 0 {
+                                hardcoverRatingRow(rating, count: count)
+                            }
+                        }
+                    }
                     Link("View on Hardcover", destination: book.sourceURL)
                 }
                 .padding(20)
@@ -297,6 +327,33 @@ private struct DiscoveryBookPreview: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+        .task(id: book.id) {
+            let fetched = try? await BookDiscoveryClient.preview(for: book.id)
+            guard !Task.isCancelled else { return }
+            metadata = fetched
+            if synopsis == nil, let language {
+                let fallback = try? await OpenLibraryClient.shared.previewSynopsis(for: book, language: language)
+                if !Task.isCancelled { fallbackSynopsis = fallback }
+            }
+        }
+    }
+
+    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(.caption.weight(.semibold))
+                .foregroundStyle(AppPalette.secondaryText)
+                .accessibilityAddTraits(.isHeader)
+            content()
+        }
+        .detailsCard()
+    }
+
+    private func tagSection(_ title: String, tags: [String]) -> some View {
+        section(title) {
+            DetailsFlowLayout(spacing: 8) {
+                ForEach(Array(Set(tags)).sorted(), id: \.self) { detailChip($0) }
             }
         }
     }
