@@ -304,31 +304,34 @@ private struct DiscoveryBookPreview: View {
 
 private struct DiscoveryCover: View {
     let book: DiscoveryBook
+    @State private var sourceIndex = 0
 
     var body: some View {
+        let sources = book.coverSources
+        let index = sourceIndex
         Color.clear
             .aspectRatio(2.0 / 3.0, contentMode: .fit)
             .overlay {
-                if let url = book.hardcoverCoverURL {
+                if sources.indices.contains(index) {
+                    let url = sources[index]
                     AsyncImage(url: url) { phase in
                         switch phase {
                         case .success(let image): image.resizable().scaledToFill()
-                        case .failure: fallback
+                        case .failure:
+                            placeholder.task {
+                                if sourceIndex == index { sourceIndex = index + 1 }
+                            }
                         default: placeholder
                         }
                     }
+                    .id(url)
                 } else {
-                    fallback
+                    placeholder
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .accessibilityHidden(true)
-    }
-
-    private var fallback: some View {
-        AsyncImage(url: book.openLibraryCoverURL) { phase in
-            if let image = phase.image { image.resizable().scaledToFill() } else { placeholder }
-        }
+            .onChange(of: sources) { _ in sourceIndex = 0 }
     }
 
     private var placeholder: some View {

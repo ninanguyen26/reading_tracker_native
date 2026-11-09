@@ -6,18 +6,21 @@ struct DiscoveryBook: Decodable, Identifiable, Sendable {
     let author: String
     let description: String?
     let coverURL: URL?
+    let alternateCoverURLs: [URL]?
     let isbns: [String]
     let language: String?
 
-    var hardcoverCoverURL: URL? {
-        guard let coverURL, coverURL.scheme == "https", coverURL.host?.hasSuffix(".hardcover.app") == true,
-              coverURL.user == nil, coverURL.password == nil, coverURL.port == nil else { return nil }
-        return coverURL
-    }
-
-    var openLibraryCoverURL: URL? {
-        guard let isbn = isbns.compactMap({ OpenLibraryISBN.normalize($0) }).first else { return nil }
-        return URL(string: "https://covers.openlibrary.org/b/isbn/\(isbn)-M.jpg?default=false")
+    var coverSources: [URL] {
+        let hardcover = ([coverURL].compactMap { $0 } + (alternateCoverURLs ?? [])).filter { url in
+            url.scheme == "https" && url.host?.hasSuffix(".hardcover.app") == true &&
+                url.user == nil && url.password == nil && url.port == nil
+        }
+        let openLibrary = isbns.compactMap { rawISBN -> URL? in
+            guard let isbn = OpenLibraryISBN.normalize(rawISBN) else { return nil }
+            return URL(string: "https://covers.openlibrary.org/b/isbn/\(isbn)-M.jpg?default=false")
+        }
+        var seen = Set<URL>()
+        return (hardcover + openLibrary).filter { seen.insert($0).inserted }
     }
 
     var sourceURL: URL { URL(string: "https://hardcover.app/books/\(id)")! }

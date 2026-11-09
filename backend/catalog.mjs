@@ -73,6 +73,8 @@ const cardFields = 'id title description cached_image default_cover_edition { is
   'contributions(where:{' + authorRole + '},limit:4) { author { name } }';
 const seriesOrder = 'order_by:[{position:asc_nulls_last},{book_id:asc},{id:asc}]';
 const editionLanguage = 'language { code2 code3 }';
+const authorEditionFields = `title isbn_13 isbn_10 cached_image image { url } ${editionLanguage}`;
+const editionOrder = 'order_by:[{users_count:desc_nulls_last},{id:asc}]';
 const seriesFields = `position book {
   ${cardFields} canonical_id users_count
   default_cover_edition { ${editionLanguage} }
@@ -110,6 +112,29 @@ function seriesLanguage(value) {
     ? value : '';
 }
 
+function editionMatchesLanguage(edition, language) {
+  return Boolean(language && [edition?.language?.code2, edition?.language?.code3].includes(language));
+}
+
+function authorDiscoveryCard(book, language) {
+  const defaultEdition = book.default_cover_edition;
+  const useDefault = !language || editionMatchesLanguage(defaultEdition, language);
+  const editions = book.matching_editions ?? [];
+  const preferred = useDefault ? null : editions.find(edition => edition.title?.trim());
+  if (!useDefault && !preferred) return null;
+
+  const card = discoveryCard(book, preferred);
+  if (!card) return null;
+
+  const sources = [preferred, useDefault ? defaultEdition : null, ...(book.cover_editions ?? []), ...editions];
+  const urls = [...new Set([
+    useDefault ? book.cached_image?.url : null,
+    ...sources.flatMap(edition => [edition?.cached_image?.url, edition?.image?.url])
+  ].map(coverURL).filter(Boolean))];
+  const isbns = [...new Set(sources.flatMap(edition => [isbn(edition?.isbn_13), isbn(edition?.isbn_10)]).filter(Boolean))];
+  return {...card, coverURL:urls[0] ?? null, alternateCoverURLs:urls.slice(1,4), isbns:isbns.slice(0,4), language:language || null};
+}
+
 function seriesEntries(members, currentID, language) {
   const works = new Map();
   const positions = new Map();
@@ -131,7 +156,7 @@ function seriesEntries(members, currentID, language) {
 
   for (const {book, position} of members) {
     const defaultLanguage = book?.default_cover_edition?.language;
-    const defaultMatches = Boolean(language && [defaultLanguage?.code2, defaultLanguage?.code3].includes(language));
+    const defaultMatches = editionMatchesLanguage(book?.default_cover_edition, language);
     const preferred = language && !defaultMatches ? book?.preferred?.[0] : null;
     const card = discoveryCard(book, preferred);
     if (!card) continue;
@@ -248,16 +273,28 @@ export class Catalog {
     const authors = [...new Set((current.contributions ?? []).map(item => item.author_id).filter(validCatalogID))];
     let authorBooks = [];
     if (authors.length) {
-      const result = await this.query(`query AuthorBooks($id:Int!,$authors:[Int!]!,$series:[Int!]!) {
+      const editionLanguageFilter = preferredLanguage
+        ? {language:{_or:[{code2:{_eq:preferredLanguage}},{code3:{_eq:preferredLanguage}}]}} : {};
+      const editionFilter = {...editionLanguageFilter, canonical_id:{_is_null:true}};
+      const bookLanguageFilter = preferredLanguage
+        ? {_or:[{default_cover_edition:editionLanguageFilter},{editions:editionFilter}]} : {};
+      const result = await this.query(`query AuthorBooks($id:Int!,$authors:[Int!]!,$series:[Int!]!,
+        $bookLanguage:books_bool_exp!,$editionFilter:editions_bool_exp!) {
         books(where:{
           id:{_neq:$id},canonical_id:{_is_null:true},
           contributions:{author_id:{_in:$authors},${authorRole}},
+          _and:[$bookLanguage],
           _not:{book_series:{series_id:{_in:$series}}}
         },order_by:[{users_count:desc_nulls_last},{id:asc}],limit:${previewCount}) {
           ${cardFields}
+          default_cover_edition { ${authorEditionFields} }
+          matching_editions: editions(where:$editionFilter,${editionOrder},limit:4) { ${authorEditionFields} }
+          cover_editions: editions(where:{_and:[$editionFilter,{image_id:{_is_null:false}}]},${editionOrder},limit:3) {
+            ${authorEditionFields}
+          }
         }
-      }`, {id:bookID, authors, series:[...seenSeries]});
-      authorBooks = (result.books ?? []).map(discoveryCard).filter(Boolean);
+      }`, {id:bookID, authors, series:[...seenSeries], bookLanguage:bookLanguageFilter, editionFilter});
+      authorBooks = (result.books ?? []).map(book => authorDiscoveryCard(book, preferredLanguage)).filter(Boolean);
     }
     return {bookID:current.id, series, authorBooks};
   }

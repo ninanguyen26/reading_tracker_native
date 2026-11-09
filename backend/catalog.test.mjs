@@ -80,11 +80,43 @@ test('discovery preserves series order and uses exact author and series IDs', as
   assert.deepEqual(discovery.series[0].entries[0].book.isbns,['9780140328721']);
   assert.equal(discovery.series[0].nextOffset,6);
   assert.deepEqual(discovery.authorBooks.map(book => book.id),[100]);
-  assert.deepEqual(requests[2].body.variables,{id:42,authors:[17],series:[9]});
+  assert.deepEqual(requests[2].body.variables,{id:42,authors:[17],series:[9],bookLanguage:{},editionFilter:{canonical_id:{_is_null:true}}});
   assert.match(requests[2].body.query,/contributions:\{author_id:\{_in:\$authors\}/);
   assert.match(requests[2].body.query,/_not:\{book_series:\{series_id:\{_in:\$series\}/);
   assert.deepEqual(await catalog.discovery({bookID:42}),discovery);
   assert.equal(requests.length,3);
+});
+test('author discovery filters by the current language and recovers covers and ISBNs from matching editions', async () => {
+  const english = {code2:'en',code3:'eng'};
+  const french = {code2:'fr',code3:'fra'};
+  const current = {id:42,default_cover_edition:{language:english},contributions:[{author_id:17}]};
+  const {catalog,requests} = setup(({query}) => result(query.includes('AuthorBooks') ? {books:[
+    {id:101,title:'No cover on the work',matching_editions:[{title:'English edition',language:english,isbn_13:'9780140328721'}],
+      cover_editions:[{language:english,image:{url:'https://assets.hardcover.app/cover.jpg'},isbn_10:'0140328726'},
+        {language:english,cached_image:{url:'https://assets.hardcover.app/alternate.jpg'}}]},
+    {id:102,title:'French only',default_cover_edition:{language:french}},
+    {id:103,title:'English without cover',default_cover_edition:{language:english}},
+    {id:104,title:'French default title',cached_image:{url:'https://assets.hardcover.app/french.jpg'},
+      default_cover_edition:{language:french},matching_editions:[{title:'Localized title',language:english,
+        cached_image:{url:'https://assets.hardcover.app/english.jpg'}}]}
+  ]} : {books:[current]}));
+
+  const {authorBooks} = await catalog.discovery({bookID:42});
+  assert.deepEqual(authorBooks.map(book => book.id),[101,103,104]);
+  assert.ok(authorBooks.every(book => book.language === 'en'));
+  assert.equal(authorBooks[0].coverURL,'https://assets.hardcover.app/cover.jpg');
+  assert.deepEqual(authorBooks[0].alternateCoverURLs,['https://assets.hardcover.app/alternate.jpg']);
+  assert.deepEqual(authorBooks[0].isbns,['9780140328721','0140328726']);
+  assert.equal(authorBooks[1].coverURL,null);
+  assert.equal(authorBooks[2].title,'Localized title');
+  assert.equal(authorBooks[2].coverURL,'https://assets.hardcover.app/english.jpg');
+  const language = {language:{_or:[{code2:{_eq:'en'}},{code3:{_eq:'en'}}]}};
+  assert.deepEqual(requests[1].body.variables.bookLanguage,{_or:[{default_cover_edition:language},
+    {editions:{...language,canonical_id:{_is_null:true}}}]});
+  assert.match(requests[1].body.query,/_and:\[\$bookLanguage\]/);
+
+  await catalog.discovery({bookID:42,language:'fr'});
+  assert.deepEqual(requests[3].body.variables.editionFilter.language._or,[{code2:{_eq:'fr'}},{code3:{_eq:'fr'}}]);
 });
 test('series paging uses the same order and has no next page at the end', async () => {
   const {catalog,requests} = setup(({query}) => result(query.includes('SeriesPage')
