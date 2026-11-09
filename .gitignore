@@ -1,1 +1,7 @@
 .DS_Store
+
+# Metadata service dependencies, local state and credentials
+backend/node_modules/
+backend/.wrangler/
+backend/.dev.vars*
+backend/.env*

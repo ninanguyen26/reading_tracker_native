@@ -39,10 +39,21 @@ struct Book: Codable, Identifiable, Hashable, Sendable, FetchableRecord, Persist
     var openLibraryEditionKey: String? = nil
     /// Each enriched field's catalog record, preserving provenance across lookups.
     var openLibraryFields: [String: String] = [:]
-    var genre: BookGenre? = nil
-    var secondaryGenres: [BookGenre] = []
-    /// "manual", "subjects", or "onDevice". Manual nil is deliberately unclassified.
+    var hardcoverBookID: Int? = nil
+    var hardcoverGenres: [String] = []
+    // Nil means the catalog has yet to report this category. An empty array records a completed lookup.
+    var hardcoverMoods: [String]? = nil
+    var hardcoverContentWarnings: [String]? = nil
+    var hardcoverRating: Double? = nil
+    var hardcoverRatingsCount: Int? = nil
+    var needsHardcoverReadingMetadata: Bool {
+        hardcoverMoods == nil || hardcoverContentWarnings == nil || hardcoverRatingsCount == nil
+    }
+    var hardcoverFields: [String: String] = [:]
+    var genres: [BookGenre] = []
+    /// "manual", "subjects", "hardcover", or "onDevice". An empty manual selection is deliberately unclassified.
     var genreSource: String? = nil
+    var isAutomaticallyUnclassified: Bool { genres.isEmpty && genreSource != "manual" }
     var pageCount: Int? = nil
     var pageCountSource: BookPageSource? = nil
     var pageCountEditionKey: String? = nil
@@ -69,7 +80,7 @@ enum LibrarySort: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .recent: "Recently Read"
+        case .recent: "Recently Opened"
         case .added: "Recently Added"
         case .title: "Title"
         case .author: "Author"

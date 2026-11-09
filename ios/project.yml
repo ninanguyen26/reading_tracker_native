@@ -44,6 +44,7 @@ targets:
         product: GRDB
     settings:
       base:
+        METADATA_SERVICE_URL: "https://reading-tracker-metadata.onrender.com/v1/metadata"
         PRODUCT_BUNDLE_IDENTIFIER: com.ninanguyen26.readingtracker
         TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_FILE: ReadingTracker/App/Info.plist

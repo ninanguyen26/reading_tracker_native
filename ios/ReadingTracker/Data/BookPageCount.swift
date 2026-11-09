@@ -4,9 +4,9 @@ import ReadiumShared
 import GRDB
 
 enum BookPageSource: String, Codable, Sendable, DatabaseValueConvertible {
-    case pdf, embedded, openLibrary, estimated
+    case pdf, embedded, openLibrary, hardcover, estimated
     var priority: Int {
-        switch self { case .pdf: 0; case .embedded: 1; case .openLibrary: 2; case .estimated: 3 }
+        switch self { case .pdf: 0; case .embedded: 1; case .openLibrary: 2; case .hardcover: 3; case .estimated: 4 }
     }
 }
 struct BookPageCount: Sendable, Equatable {

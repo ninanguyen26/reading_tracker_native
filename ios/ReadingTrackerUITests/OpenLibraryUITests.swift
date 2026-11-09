@@ -37,26 +37,39 @@ final class OpenLibraryUITests: XCTestCase {
         app.launchArguments = ["-reset-library", "-import-samples", "-open-library-fixtures"]
         app.launch()
         openPDFDetails(app)
-        XCTAssertTrue(app.staticTexts["Science & Technology"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Science & Tech"].waitForExistence(timeout: 10))
         app.buttons["Edit Genres"].tap()
-        app.buttons["primary-genre-picker"].tap()
-        app.descendants(matching: .any)["Romance"].firstMatch.tap()
+        let romance = app.buttons["genre-option-Romance"]
+        let fantasy = app.buttons["genre-option-Fantasy"]
+        let science = app.buttons["genre-option-Science & Technology"]
+        romance.tap()
+        fantasy.tap()
+        let editor = XCTAttachment(screenshot: app.screenshot())
+        editor.name = "Genre Multi-Select"
+        editor.lifetime = .keepAlways
+        add(editor)
         app.buttons["Save"].tap()
         XCTAssertTrue(app.staticTexts["Romance"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Fantasy"].exists)
+        XCTAssertTrue(app.staticTexts["Science & Tech"].exists)
         app.buttons["Done"].tap()
         app.terminate()
         app.launchArguments = []
         app.launch()
         openPDFDetails(app)
         XCTAssertTrue(app.staticTexts["Romance"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Fantasy"].exists)
         app.buttons["Edit Genres"].tap()
-        app.buttons["primary-genre-picker"].tap()
-        app.descendants(matching: .any)["Unclassified"].firstMatch.tap()
+        romance.tap()
+        fantasy.tap()
+        for _ in 0..<5 where !science.isHittable { app.swipeUp() }
+        XCTAssertEqual(science.label, "Science & Tech")
+        science.tap()
         app.buttons["Save"].tap()
         XCTAssertTrue(app.staticTexts["Unclassified"].waitForExistence(timeout: 5))
         app.buttons["Edit Genres"].tap()
         app.buttons["automatic-genre"].tap()
-        XCTAssertTrue(app.staticTexts["Science & Technology"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Science & Tech"].waitForExistence(timeout: 10))
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Book Genres"
         attachment.lifetime = .keepAlways
@@ -70,6 +83,33 @@ final class OpenLibraryUITests: XCTestCase {
         app.buttons["Book Details"].tap()
         app.swipeUp()
         XCTAssertTrue(app.buttons["Edit Genres"].waitForExistence(timeout: 5))
+    }
+
+    func testHardcoverMoodsAreVisibleAndContentWarningsRequireReveal() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-reset-library", "-import-samples", "-open-library-fixtures",
+                               "-hardcover-reading-tags-fixture"]
+        app.launch()
+        openPDFDetails(app)
+        app.swipeDown()
+        let rating = app.staticTexts["hardcover-rating"]
+        XCTAssertTrue(rating.waitForExistence(timeout: 5))
+        XCTAssertTrue(rating.label.contains("4.2 out of 5"))
+        let header = XCTAttachment(screenshot: app.screenshot())
+        header.name = "Hardcover Rating"
+        header.lifetime = .keepAlways
+        add(header)
+        let reveal = app.buttons["Show content warnings"]
+        for _ in 0..<4 where !reveal.isHittable { app.swipeUp() }
+        XCTAssertTrue(reveal.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Reflective"].exists)
+        XCTAssertFalse(app.staticTexts["Blood"].exists)
+        reveal.tap()
+        XCTAssertTrue(app.staticTexts["Blood"].waitForExistence(timeout: 5))
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Moods and Revealed Content Warnings"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     func testImportAutomaticallyAddsAndPersistsMissingDetails() {

@@ -7,10 +7,10 @@ final class AppDatabase: Sendable {
 
     init(_ writer: any DatabaseWriter) throws {
         self.writer = writer
-        try migrator.migrate(writer)
+        try Self.migrator.migrate(writer)
     }
 
-    private var migrator: DatabaseMigrator {
+    static var migrator: DatabaseMigrator {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1") { db in
             try db.create(table: "book") { t in
@@ -94,6 +94,48 @@ final class AppDatabase: Sendable {
                 t.column("bookId", .text).notNull().references("book", onDelete: .cascade)
                 t.column("shelfId", .text).notNull().indexed().references("shelf", onDelete: .cascade)
                 t.primaryKey(["bookId", "shelfId"])
+            }
+        }
+        migrator.registerMigration("v9-hardcover") { db in
+            try db.alter(table: "book") { t in
+                t.add(column: "hardcoverBookID", .integer)
+                t.add(column: "hardcoverGenres", .text).notNull().defaults(to: "[]")
+                t.add(column: "hardcoverFields", .text).notNull().defaults(to: "{}")
+            }
+        }
+        migrator.registerMigration("v10-genre-list") { db in
+            try db.alter(table: "book") { t in
+                t.add(column: "genres", .text).notNull().defaults(to: "[]")
+            }
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT id, genre, secondaryGenres FROM book
+                WHERE genre IS NOT NULL OR secondaryGenres <> '[]'
+                """)
+            let decoder = JSONDecoder()
+            let encoder = JSONEncoder()
+            for row in rows {
+                let id: String = row["id"]
+                let genre: String? = row["genre"]
+                let secondary: String = row["secondaryGenres"]
+                let saved = try decoder.decode([String].self, from: Data(secondary.utf8))
+                let selected = Set([genre].compactMap { $0 } + saved)
+                let genres = BookGenre.allCases.filter { selected.contains($0.rawValue) }
+                let json = String(decoding: try encoder.encode(genres), as: UTF8.self)
+                try db.execute(sql: "UPDATE book SET genres = ? WHERE id = ?", arguments: [json, id])
+            }
+            try db.execute(sql: "ALTER TABLE book DROP COLUMN genre")
+            try db.execute(sql: "ALTER TABLE book DROP COLUMN secondaryGenres")
+        }
+        migrator.registerMigration("v11-hardcover-reading-tags") { db in
+            try db.alter(table: "book") { t in
+                t.add(column: "hardcoverMoods", .text)
+                t.add(column: "hardcoverContentWarnings", .text)
+            }
+        }
+        migrator.registerMigration("v12-hardcover-rating") { db in
+            try db.alter(table: "book") { t in
+                t.add(column: "hardcoverRating", .double)
+                t.add(column: "hardcoverRatingsCount", .integer)
             }
         }
         return migrator

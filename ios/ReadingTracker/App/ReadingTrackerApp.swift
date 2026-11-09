@@ -22,7 +22,14 @@ struct ReadingTrackerApp: App {
                 // "Open in Reading Tracker" from Files, Mail, Safari or AirDrop.
                 .onOpenURL { url in library.importFiles([url]) }
                 .task {
+                    await environment.retryUnclassifiedGenresIfNeeded()
+                    await environment.importer.backfillHardcoverReadingMetadata()
+                }
+                .task {
                     #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("-hardcover-smoke-test") {
+                        await HardcoverSmokeTest.run()
+                    }
                     if ProcessInfo.processInfo.arguments.contains("-genre-model-smoke-test") {
                         await GenreModelSmokeTest.run()
                     }

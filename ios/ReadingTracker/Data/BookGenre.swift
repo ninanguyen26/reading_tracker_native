@@ -2,7 +2,7 @@ import Foundation
 import CryptoKit
 import GRDB
 
-/// Stable, closed taxonomy. Unclassified is represented by nil, not a 17th genre.
+/// Stable, closed taxonomy. An empty selection represents an unclassified book.
 enum BookGenre: String, Codable, CaseIterable, Identifiable, Hashable, Sendable, DatabaseValueConvertible {
     case romance = "Romance"
     case fantasy = "Fantasy"
@@ -21,7 +21,18 @@ enum BookGenre: String, Codable, CaseIterable, Identifiable, Hashable, Sendable,
     case science = "Science & Technology"
     case trueCrime = "True Crime"
     var id: String { rawValue }
-    var isFiction: Bool { Self.allCases.firstIndex(of: self)! < 9 }
+
+    var displayName: String {
+        switch self {
+        case .scienceFiction: "Sci-Fi"
+        case .selfHelp: "Self-Help"
+        case .business: "Business & Finance"
+        case .biography: "Biography"
+        case .science: "Science & Tech"
+        case .thriller: "Thriller"
+        default: rawValue
+        }
+    }
 
     var definition: String {
         switch self {
@@ -49,12 +60,14 @@ struct GenreInput: Codable, Sendable, Equatable {
     var title: String
     var author: String
     var subjects: [String]
+    var hardcoverTags: [String]
     var synopsis: String
 
     init(book: Book) {
         title = String(book.title.prefix(250))
         author = String(book.author.prefix(200))
-        subjects = BookDetailsText.nonempty(book.subjects).prefix(30).map { String($0.prefix(100)) }
+        subjects = BookDetailsText.nonempty(book.subjects + book.hardcoverGenres).prefix(50).map { String($0.prefix(100)) }
+        hardcoverTags = book.hardcoverGenres
         synopsis = String((BookDetailsText.description(book.description) ?? "").prefix(5000))
     }
     var evidence: String { (subjects + [synopsis]).joined(separator: "\n") }
@@ -75,8 +88,7 @@ struct GenreInput: Codable, Sendable, Equatable {
 }
 
 struct GenreDecision: Sendable, Equatable {
-    var primary: BookGenre
-    var secondary: [BookGenre] = []
+    var genres: [BookGenre]
     var source: String
 }
 
@@ -105,9 +117,7 @@ enum SubjectGenreMapping {
         .trueCrime: ["true crime", "true crime stories"]
     ]
 
-    static func classify(_ subjects: [String]) -> GenreDecision? {
-        let normalized = subjects.map(normalize)
-        let romantasy = normalized.contains("romantasy") || normalized.contains("fantasy romance")
+    private static func matches(in subjects: [String]) -> Set<BookGenre> {
         var candidates = Set<BookGenre>()
         for subject in subjects {
             let full = normalize(subject)
@@ -116,17 +126,33 @@ enum SubjectGenreMapping {
                 candidates.insert(genre)
             }
             if parts.first == "fiction" {
-                if parts.contains("historical") { candidates.insert(.historicalFiction); candidates.remove(.history) }
+                if parts.contains("historical") { candidates.insert(.historicalFiction) }
                 if parts.contains("literary") { candidates.insert(.literaryFiction) }
             }
         }
+        return candidates
+    }
+
+    private static func hasRomantasy(_ tags: [String]) -> Bool {
+        tags.map(normalize).contains { $0 == "romantasy" || $0 == "fantasy romance" }
+    }
+
+    static func classifyHardcover(_ tags: [String]) -> GenreDecision? {
+        var candidates = matches(in: tags)
+        if hasRomantasy(tags) { candidates.formUnion([.romance, .fantasy]) }
+        guard !candidates.isEmpty else { return nil }
+        return GenreDecision(genres: BookGenre.allCases.filter(candidates.contains), source: "hardcover")
+    }
+
+    static func classify(_ subjects: [String]) -> GenreDecision? {
+        var candidates = matches(in: subjects)
         if candidates.contains(.memoir) { candidates.remove(.biography) }
         if candidates.contains(.historicalFiction) { candidates.remove(.history) }
-        if romantasy && candidates.isSubset(of: [.fantasy, .romance]) {
-            return GenreDecision(primary: .fantasy, secondary: [.romance], source: "subjects")
+        if hasRomantasy(subjects) && candidates.isSubset(of: [.fantasy, .romance]) {
+            return GenreDecision(genres: [.romance, .fantasy], source: "subjects")
         }
         guard candidates.count == 1, let genre = candidates.first else { return nil }
-        return GenreDecision(primary: genre, source: "subjects")
+        return GenreDecision(genres: [genre], source: "subjects")
     }
 }
 
@@ -151,6 +177,7 @@ actor BookGenreClassifier {
     init(model: any GenreModelPredicting = AppleGenreModel()) { self.model = model }
 
     func classify(_ input: GenreInput) async -> GenreDecision? {
+        if let mapped = SubjectGenreMapping.classifyHardcover(input.hardcoverTags) { return mapped }
         if let mapped = SubjectGenreMapping.classify(input.subjects) { return mapped }
         guard input.hasModelEvidence else { return nil }
         let preceding = pending
@@ -178,8 +205,7 @@ actor BookGenreClassifier {
                   quote.count >= 12, input.evidence.contains(quote) else { return nil }
             genres.append(genre)
         }
-        guard let primary = genres.first else { return nil }
-        return GenreDecision(primary: primary, secondary: Array(genres.dropFirst()), source: "onDevice")
+        return GenreDecision(genres: BookGenre.allCases.filter(genres.contains), source: "onDevice")
     }
 
     func classifyBook(id: String, database: AppDatabase) async {
@@ -192,23 +218,23 @@ actor BookGenreClassifier {
 }
 
 extension AppDatabase {
-    func saveManualGenre(id: String, primary: BookGenre?, secondary: [BookGenre]) async throws -> Book {
+    func saveManualGenres(id: String, genres: Set<BookGenre>) async throws -> Book {
         try await writer.write { db in
             guard var book = try Book.fetchOne(db, key: id) else { throw OpenLibraryError.missingBook }
-            book.genre = primary
-            book.secondaryGenres = primary == nil ? [] : Array(secondary.filter { $0 != primary }.uniqued().prefix(2))
+            book.genres = BookGenre.allCases.filter(genres.contains)
             book.genreSource = "manual" // Includes an explicit manual Unclassified selection.
             try book.update(db)
             return book
         }
     }
 
-    func saveAutomaticGenre(id: String, decision: GenreDecision?, inputSignature: String) async throws {
+    func saveAutomaticGenre(id: String, decision: GenreDecision?, inputSignature: String,
+                            onlyIfUnclassified: Bool = false) async throws {
         try await writer.write { db in
             guard var book = try Book.fetchOne(db, key: id), book.genreSource != "manual",
+                  !onlyIfUnclassified || book.genres.isEmpty,
                   GenreInput(book: book).signature == inputSignature else { return }
-            book.genre = decision?.primary
-            book.secondaryGenres = decision?.secondary ?? []
+            book.genres = decision?.genres ?? []
             book.genreSource = decision?.source
             try book.update(db)
         }
@@ -216,14 +242,7 @@ extension AppDatabase {
 
     func resetManualGenre(id: String) async throws {
         try await writer.write { db in
-            try db.execute(sql: "UPDATE book SET genre = NULL, secondaryGenres = '[]', genreSource = NULL WHERE id = ?", arguments: [id])
+            try db.execute(sql: "UPDATE book SET genres = '[]', genreSource = NULL WHERE id = ?", arguments: [id])
         }
-    }
-}
-
-private extension Array where Element: Hashable {
-    func uniqued() -> [Element] {
-        var seen = Set<Element>()
-        return filter { seen.insert($0).inserted }
     }
 }

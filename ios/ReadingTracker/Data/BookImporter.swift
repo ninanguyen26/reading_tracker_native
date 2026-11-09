@@ -23,20 +23,24 @@ final class BookImporter {
     private let storage: BookStorage
     private let readium: ReadiumServices
     private let openLibrary: (any OpenLibraryEnriching)?
+    private let hardcover: (any HardcoverEnriching)?
     private let classifier: BookGenreClassifier?
     private var enrichments: [String: Task<Void, Never>] = [:]
     private var pageTasks: [String: Task<Void, Never>] = [:]
+    private var backfillingHardcoverReadingMetadata = false
 
     static let coverSize = CGSize(width: 600, height: 900)
 
     init(database: AppDatabase, storage: BookStorage, readium: ReadiumServices = .shared,
          openLibrary: (any OpenLibraryEnriching)? = OpenLibraryClient.shared,
-         classifier: BookGenreClassifier? = .shared) {
+         classifier: BookGenreClassifier? = .shared,
+         hardcover: (any HardcoverEnriching)? = HardcoverClient.shared) {
         self.database = database
         self.storage = storage
         self.readium = readium
         self.openLibrary = openLibrary
         self.classifier = classifier
+        self.hardcover = hardcover
     }
 
     /// Imports a file from anywhere: the Files picker, "Open in…", or the app bundle.
@@ -140,12 +144,64 @@ final class BookImporter {
             }
             guard !Task.isCancelled else { return }
             await updateCatalogPages(id: book.id)
+            await self?.updateHardcover(id: book.id)
             // Always run after enrichment (or its failure), including fully embedded imports.
             await classifier?.classifyBook(id: book.id, database: database)
         }
     }
 
     func waitForMetadata(bookID: String) async { await enrichments[bookID]?.value }
+
+    func backfillHardcoverReadingMetadata() async {
+        guard let hardcover, !backfillingHardcoverReadingMetadata else { return }
+        backfillingHardcoverReadingMetadata = true
+        defer { backfillingHardcoverReadingMetadata = false }
+        do {
+            let books = try await database.booksMissingHardcoverReadingMetadata()
+            for book in books where enrichments[book.id] == nil {
+                try Task.checkCancellation()
+                let metadata = try await hardcover.metadata(for: book)
+                try Task.checkCancellation()
+                try await database.saveHardcoverReadingMetadata(id: book.id, metadata: metadata)
+            }
+        } catch { /* Resume remaining lookups next launch after an interruption. */ }
+    }
+
+    /// Revisit old unclassified books using their saved evidence and fill missing Hardcover tags.
+    func retryUnclassifiedGenres() async throws -> Bool {
+        guard let classifier else { return true }
+        var lookupAvailable = true
+        let candidates = try await database.allBooks().filter(\.isAutomaticallyUnclassified)
+        let withTags = candidates.filter { !$0.hardcoverGenres.isEmpty }
+        let withoutTags = candidates.filter { $0.hardcoverGenres.isEmpty }
+        for candidate in withTags + withoutTags {
+            try Task.checkCancellation()
+            guard var book = try await database.book(id: candidate.id), book.isAutomaticallyUnclassified else { continue }
+            if book.hardcoverGenres.isEmpty, let hardcover, lookupAvailable {
+                let metadata: HardcoverMetadata?
+                do {
+                    metadata = try await hardcover.metadata(for: book)
+                } catch {
+                    try Task.checkCancellation()
+                    lookupAvailable = false
+                    metadata = nil
+                }
+                if let metadata {
+                    try Task.checkCancellation()
+                    try await database.saveMissingHardcoverGenreTags(id: book.id, metadata: metadata)
+                    guard let updated = try await database.book(id: book.id), updated.isAutomaticallyUnclassified else { continue }
+                    book = updated
+                }
+            }
+            let input = GenreInput(book: book)
+            if let decision = await classifier.classify(input) {
+                try Task.checkCancellation()
+                try await database.saveAutomaticGenre(id: book.id, decision: decision, inputSignature: input.signature,
+                                                      onlyIfUnclassified: true)
+            }
+        }
+        return lookupAvailable
+    }
 
     func updatePageCount(for book: Book, publication: Publication? = nil) async {
         if let task = pageTasks[book.id] { await task.value; return }
@@ -176,9 +232,26 @@ final class BookImporter {
     private func updateCatalogPages(id: String) async {
         guard let openLibrary, !Task.isCancelled,
               let book = try? await database.book(id: id), book.format == .epub,
-              book.pageCountSource == nil || book.pageCountSource == .estimated,
+              book.pageCountSource == nil || book.pageCountSource == .estimated || book.pageCountSource == .hardcover,
               let count = try? await openLibrary.exactEditionPages(for: book), !Task.isCancelled else { return }
         try? await database.savePageCount(id: id, measurement: count)
+    }
+
+    /// Optional account-backed fallback. Never blocks saving or reading an import.
+    private func updateHardcover(id: String) async {
+        guard let hardcover, !Task.isCancelled,
+              let book = try? await database.book(id: id),
+              book.needsHardcoverReadingMetadata || BookDetailsText.description(book.description) == nil || book.series.isEmpty ||
+                book.hardcoverGenres.isEmpty || book.pageCountSource == nil || book.pageCountSource == .estimated else { return }
+        do {
+            let metadata = try await hardcover.metadata(for: book)
+            try Task.checkCancellation()
+            if let metadata {
+                try await database.enrichHardcover(id: id, metadata: metadata)
+            } else {
+                try await database.saveHardcoverReadingMetadata(id: id, metadata: nil)
+            }
+        } catch { /* Authentication, offline and catalog failures leave the local book usable. */ }
     }
 
     // MARK: Helpers

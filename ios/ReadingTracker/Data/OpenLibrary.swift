@@ -139,7 +139,7 @@ struct OpenLibraryMetadata {
     func filling(_ original: Book, fields: Set<OpenLibraryField>) -> Book {
         var book = original
         if book.format == .epub, let pages = exactEditionPages,
-           book.pageCountSource == nil || book.pageCountSource == .estimated || book.pageCountSource == .openLibrary {
+           book.pageCountSource == nil || book.pageCountSource == .estimated || book.pageCountSource == .hardcover || book.pageCountSource == .openLibrary {
             book.pageCount = pages.count
             book.pageCountSource = pages.source
             book.pageCountEditionKey = pages.editionKey

@@ -10,6 +10,7 @@ struct BookDetailsScreen: View {
     @State private var showingGenres = false
     @State private var expandedDescription = false
     @State private var loadingPages = true
+    @State private var showingContentWarnings = false
     private var description: String? { BookDetailsText.description(book.description) }
 
     init(book: Book, coverURL: URL?, onRead: (() -> Void)? = nil) {
@@ -27,7 +28,17 @@ struct BookDetailsScreen: View {
         }
         if book.pageCountSource == .openLibrary, let key = book.pageCountEditionKey,
            OpenLibraryClient.validKey(key, kind: "books", suffix: "M") { sources["pages"] = key }
+        for (field, url) in book.hardcoverFields where
+            (field != "description" || description != nil) && Self.validHardcoverURL(url) {
+            sources[field] = url
+        }
+        if book.pageCountSource == .hardcover, let url = book.pageCountEditionKey,
+           Self.validHardcoverURL(url) { sources["pages"] = url }
         return sources
+    }
+    private static func validHardcoverURL(_ value: String) -> Bool {
+        value.range(of: #"^https://hardcover\.app/books/[0-9]+(?:/editions/[0-9]+)?$"#,
+                    options: .regularExpression) != nil
     }
 
     var body: some View {
@@ -47,6 +58,16 @@ struct BookDetailsScreen: View {
                     }
                     if let description { synopsisCard(description) }
                     informationCard
+                    if let moods = book.hardcoverMoods, !moods.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            heading("Moods")
+                            readingTagChips(moods)
+                        }
+                        .detailsCard()
+                    }
+                    if let warnings = book.hardcoverContentWarnings, !warnings.isEmpty {
+                        contentWarningsCard(warnings)
+                    }
                     Button { showingLookup = true } label: {
                         Label("Find Missing Details", systemImage: "magnifyingglass")
                             .frame(maxWidth: .infinity)
@@ -107,6 +128,15 @@ struct BookDetailsScreen: View {
                         .font(.subheadline)
                         .foregroundStyle(AppPalette.secondaryText)
                 }
+                if let rating = book.hardcoverRating, let count = book.hardcoverRatingsCount, count > 0 {
+                    let average = rating.formatted(.number.precision(.fractionLength(1)))
+                    let countLabel = "\(count.formatted()) \(count == 1 ? "rating" : "ratings")"
+                    Text("★ \(average)/5 · \(countLabel)")
+                        .font(.caption)
+                        .foregroundStyle(AppPalette.secondaryText)
+                        .accessibilityLabel("Hardcover rating, \(average) out of 5, \(countLabel)")
+                        .accessibilityIdentifier("hardcover-rating")
+                }
                 Text(book.format.label)
                     .font(.caption2.weight(.semibold))
                     .padding(.horizontal, 8).padding(.vertical, 4)
@@ -164,9 +194,10 @@ struct BookDetailsScreen: View {
                     .buttonStyle(DetailsActionStyle())
             }
             DetailsFlowLayout(spacing: 8) {
-                detailChip(book.genre?.rawValue ?? "Unclassified", prominent: book.genre != nil)
-                    .accessibilityIdentifier("book-primary-genre")
-                ForEach(book.secondaryGenres, id: \.self) { detailChip($0.rawValue) }
+                if book.genres.isEmpty {
+                    detailChip("Unclassified")
+                }
+                ForEach(book.genres) { detailChip($0.displayName) }
             }
             Divider().overlay(AppPalette.border)
             metadataRow("Pages", value: pageCountLabel)
@@ -186,16 +217,38 @@ struct BookDetailsScreen: View {
         .detailsCard()
     }
 
+    private func readingTagChips(_ tags: [String]) -> some View {
+        DetailsFlowLayout(spacing: 8) {
+            ForEach(tags, id: \.self) { detailChip($0) }
+        }
+    }
+
+    private func contentWarningsCard(_ warnings: [String]) -> some View {
+        DisclosureGroup(isExpanded: $showingContentWarnings) {
+            readingTagChips(warnings)
+                .padding(.top, 10)
+        } label: {
+            Label(showingContentWarnings ? "Content Warnings" : "Show content warnings",
+                  systemImage: "exclamationmark.triangle")
+                .font(.subheadline.weight(.medium))
+                .frame(minHeight: 44)
+                .foregroundStyle(AppPalette.secondaryText)
+                .accessibilityIdentifier("content-warnings-disclosure")
+        }
+        .detailsCard()
+    }
+
     private var sourcesCard: some View {
         DisclosureGroup {
             VStack(spacing: 8) {
                 ForEach(Array(Set(metadataSources.values)).sorted(), id: \.self) { key in
-                    Link(destination: URL(string: "https://openlibrary.org\(key)")!) {
+                    Link(destination: URL(string: key.hasPrefix("https://hardcover.app/") ? key : "https://openlibrary.org\(key)")!) {
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Open Library").font(.subheadline.weight(.semibold))
+                                Text(key.hasPrefix("https://hardcover.app/") ? "Hardcover" : "Open Library").font(.subheadline.weight(.semibold))
                                 Text(metadataSources.filter { $0.value == key }.keys.sorted().map {
-                                    OpenLibraryField(rawValue: $0)?.label ?? $0.capitalized
+                                    $0 == "contentWarnings" ? "Content Warnings" :
+                                        OpenLibraryField(rawValue: $0)?.label ?? $0.capitalized
                                 }.joined(separator: ", "))
                                 .font(.caption).foregroundStyle(AppPalette.secondaryText)
                             }
@@ -232,13 +285,12 @@ struct BookDetailsScreen: View {
         }
     }
 
-    private func detailChip(_ text: String, prominent: Bool = false) -> some View {
+    private func detailChip(_ text: String) -> some View {
         Text(text)
-            .font(.caption.weight(prominent ? .semibold : .regular))
-            .foregroundStyle(prominent ? AppPalette.accent : AppPalette.text)
+            .font(.caption)
+            .foregroundStyle(AppPalette.text)
             .padding(.horizontal, 10).padding(.vertical, 7)
-            .background(prominent ? AppPalette.accent.opacity(0.1) : AppPalette.secondarySurface,
-                        in: RoundedRectangle(cornerRadius: 8))
+            .background(AppPalette.secondarySurface, in: RoundedRectangle(cornerRadius: 8))
             .fixedSize(horizontal: false, vertical: true)
     }
 }

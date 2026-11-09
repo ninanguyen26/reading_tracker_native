@@ -6,11 +6,22 @@ final class AppEnvironment: ObservableObject {
     let database: AppDatabase
     let storage: BookStorage
     let importer: BookImporter
+    private var retryingGenres = false
 
     init(database: AppDatabase, storage: BookStorage) {
         self.database = database
         self.storage = storage
         self.importer = BookImporter(database: database, storage: storage)
+    }
+
+    func retryUnclassifiedGenresIfNeeded() async {
+        let key = "hardcover-genre-reclassification-v1"
+        guard !retryingGenres, !UserDefaults.standard.bool(forKey: key) else { return }
+        retryingGenres = true
+        defer { retryingGenres = false }
+        if (try? await importer.retryUnclassifiedGenres()) == true, !Task.isCancelled {
+            UserDefaults.standard.set(true, forKey: key)
+        }
     }
 
     static func live() -> AppEnvironment {

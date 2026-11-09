@@ -36,7 +36,7 @@ struct HighlightPalette: Identifiable, Equatable {
     static let petalAndDusk = HighlightPalette(
         id: "petalAndDusk",
         name: "Petal & Dusk",
-        colors: ("#6C0820", "#F2AEBC", "#F2DCDB", "#5A86CB", "#3D5D91")
+        colors: ("#6C0820", "#F2AEBC", "#F2EA9F", "#5A86CB", "#3D5D91")
     )
     static let emberAndMoss = HighlightPalette(
         id: "emberAndMoss",
