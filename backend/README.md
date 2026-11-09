@@ -32,6 +32,10 @@ Deploy the backend directory as a Render **Free Web Service**, build
 `npm ci --omit=dev`, start `npm start`, health path `/health`. `render.yaml` describes
 the same settings. Do not add a database or disk for this version.
 
+Automatic deploys require `reading_tracker_native` in the Render GitHub App's
+repository access. The service watches `main` with Auto-Deploy set to On Commit
+and triggers a build for pushes that change files under `backend/`.
+
 The deployed service is `https://reading-tracker-metadata.onrender.com`.
 Configure cron-job.org to GET `https://reading-tracker-metadata.onrender.com/health` every 10 minutes
 with response-body storage disabled. No Hardcover token is needed in the job.
