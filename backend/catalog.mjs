@@ -78,7 +78,7 @@ const seriesFields = `position book {
   default_cover_edition { ${editionLanguage} }
   preferred: editions(where:{language:{_or:[{code2:{_eq:$language}},{code3:{_eq:$language}}]},
     canonical_id:{_is_null:true}},order_by:[{users_count:desc_nulls_last},{id:asc}],limit:1) {
-    title description isbn_13 isbn_10 cached_image
+    title isbn_13 isbn_10 cached_image
   }
 }`;
 
@@ -94,13 +94,12 @@ function discoveryCard(book, preferred) {
   if (!Number.isInteger(book?.id) || book.id <= 0 || typeof book.title !== 'string' || !book.title.trim()) return null;
   const edition = preferred ?? book.default_cover_edition;
   const title = preferred?.title?.trim() || book.title;
-  const description = preferred?.description?.trim() || book.description;
   return {
     id: book.id,
     title: title.slice(0,500),
     author: [...new Set((book.contributions ?? []).map(item => item.author?.name).filter(Boolean))]
       .join(', ').slice(0,300),
-    description: typeof description === 'string' ? description.slice(0,4000) : null,
+    description: typeof book.description === 'string' ? book.description.slice(0,4000) : null,
     coverURL: coverURL(preferred ? preferred.cached_image?.url : book.cached_image?.url),
     isbns: [...new Set([isbn(edition?.isbn_13), isbn(edition?.isbn_10)].filter(Boolean))]
   };

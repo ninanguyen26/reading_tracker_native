@@ -116,12 +116,14 @@ test('series chooses one version per work before preview and page limits, using 
     member(6, 60, 'Translation of book 6', 'uk', {canonical_id:6}),
     member(7, 7, 'English title', 'en'),
     member(7, 70, 'Ukrainian title', 'uk', {canonical_id:7}),
-    member(8, 8, 'Default title', 'fr', {preferred:[{title:'English edition', isbn_13:'9780140328721',
+    member(8, 8, 'Default title', 'fr', {description:'Book-level synopsis', preferred:[{title:'English edition', isbn_13:'9780140328721',
       cached_image:{url:'https://assets.hardcover.app/english.jpg'}}]}),
     member(null, 80, 'Unnumbered translation of book 6', 'uk', {canonical_id:6}),
     member(null, 90, 'Unnumbered standalone entry', 'uk')
   ];
   const {catalog} = setup(({query,variables}) => {
+    // Hardcover exposes the synopsis on books, and omits it from the editions schema.
+    assert.match(query, /preferred: editions\([\s\S]*?limit:1\)\s*\{\s*title isbn_13 isbn_10 cached_image\s*\}/);
     // The preferred edition field only returns editions in the requested language.
     const records = variables.language === 'en' ? members : members.map(({position,book}) => ({position,book:{...book,preferred:[]}}));
     const current = {id:3, default_cover_edition:{language:{code2:'en'}}};
@@ -135,6 +137,7 @@ test('series chooses one version per work before preview and page limits, using 
   const englishPage = await catalog.seriesPage({seriesID:9,offset:english.nextOffset,bookID:3,language:'en'});
   assert.deepEqual(englishPage.entries.map(entry => entry.book.id), [7,8,90]);
   assert.equal(englishPage.entries[1].book.title,'English edition');
+  assert.equal(englishPage.entries[1].book.description,'Book-level synopsis');
   assert.equal(englishPage.entries[1].book.coverURL,'https://assets.hardcover.app/english.jpg');
   assert.equal(englishPage.nextOffset,null);
   const ukrainian = (await catalog.discovery({bookID:3,language:'uk'})).series[0];
