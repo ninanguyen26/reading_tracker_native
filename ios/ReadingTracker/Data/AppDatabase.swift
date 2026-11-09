@@ -138,6 +138,11 @@ final class AppDatabase: Sendable {
                 t.add(column: "hardcoverRatingsCount", .integer)
             }
         }
+        migrator.registerMigration("v13-reading-status") { db in
+            try db.alter(table: "book") { t in
+                t.add(column: "readingStatus", .text).notNull().defaults(to: ReadingStatus.tbr.rawValue)
+            }
+        }
         return migrator
     }
 
@@ -181,6 +186,23 @@ final class AppDatabase: Sendable {
             try db.execute(
                 sql: "UPDATE book SET locator = ?, progression = ? WHERE id = ?",
                 arguments: [locator, min(max(progression, 0), 1), id]
+            )
+        }
+    }
+
+    func setReadingStatus(_ status: ReadingStatus, for bookIDs: [String]) async throws {
+        try await writer.write { db in
+            for id in bookIDs {
+                try db.execute(sql: "UPDATE book SET readingStatus = ? WHERE id = ?", arguments: [status, id])
+            }
+        }
+    }
+
+    func markReadingIfTBR(id: String) async throws {
+        try await writer.write { db in
+            try db.execute(
+                sql: "UPDATE book SET readingStatus = ? WHERE id = ? AND readingStatus = ?",
+                arguments: [ReadingStatus.reading, id, ReadingStatus.tbr]
             )
         }
     }

@@ -241,6 +241,8 @@ final class ReaderUITests: XCTestCase {
 
         goBack(in: app)
         XCTAssertFalse(book(epubTitle, in: app).label.contains("New"), "The library shows progress after reading")
+        app.buttons["reading-filter-reading"].tap()
+        XCTAssertTrue(book(epubTitle, in: app).exists)
 
         // Reopen after quitting the app.
         app.terminate()
@@ -255,6 +257,11 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(book(pdfTitle, in: app).waitForExistence(timeout: 15))
         book(pdfTitle, in: app).tap()
         waitForProgress(in: app, matching: "Page 1 of 6 · 0%")
+        goBack(in: app)
+        app.buttons["reading-filter-tbr"].tap()
+        XCTAssertTrue(book(pdfTitle, in: app).exists)
+        book(pdfTitle, in: app).tap()
+        waitForProgress(in: app, matching: "Page 1 of 6 · 0%")
         turnPage(in: app)
         waitForProgress(in: app, matching: "Page 2 of 6 · \\d+%")
         // Turning the page hides the toolbar; a tap in the middle brings it back.
@@ -263,6 +270,9 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars[pdfTitle].waitForExistence(timeout: 5))
         app.otherElements["reader-content"].coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5)).tap()
         waitForProgress(in: app, matching: "Page 1 of 6 · 0%")
+        goBack(in: app)
+        app.buttons["reading-filter-reading"].tap()
+        XCTAssertTrue(book(pdfTitle, in: app).exists)
     }
 
     func testReadingSettingsApplyAndPersist() {
@@ -287,6 +297,9 @@ final class ReaderUITests: XCTestCase {
         app.otherElements["reader-content"].swipeUp()
         let moved = NSPredicate(format: "label != %@", before)
         wait(for: [expectation(for: moved, evaluatedWith: progress(in: app))], timeout: 10)
+        goBack(in: app)
+        app.buttons["reading-filter-reading"].tap()
+        XCTAssertTrue(book(epubTitle, in: app).exists)
 
         // Settings are kept after quitting.
         app.terminate()

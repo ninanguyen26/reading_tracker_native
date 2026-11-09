@@ -6,6 +6,7 @@ import UIKit
 /// Hosts a Readium navigator and wires up page-turning input.
 final class ReaderHostViewController: UIViewController, UIGestureRecognizerDelegate {
     enum TapZone { case left, middle, right }
+    enum ReadingMovement { case began, completed, cancelled }
 
     /// What the reader does in response to input.
     struct Actions {
@@ -13,6 +14,7 @@ final class ReaderHostViewController: UIViewController, UIGestureRecognizerDeleg
         var isScrolling: () -> Bool
         var onTapCenter: () -> Void
         var onPageTurn: () -> Void
+        var onReadingMovement: (ReadingMovement) -> Void
         /// "Highlight" and "Note" in the text selection menu
         var onHighlightSelection: () -> Void
         var onNoteOnSelection: () -> Void
@@ -54,6 +56,13 @@ final class ReaderHostViewController: UIViewController, UIGestureRecognizerDeleg
         view.addSubview(navigator.view)
         navigator.didMove(toParent: self)
 
+        // Observe native swipes and scrolls alongside Readium's recognizers.
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handleReadingPan(_:)))
+        pan.maximumNumberOfTouches = 1
+        pan.cancelsTouchesInView = false
+        pan.delegate = self
+        navigator.view.addGestureRecognizer(pan)
+
         if navigator is PDFNavigatorViewController {
             installPDFTapRecognizer()
         } else {
@@ -67,7 +76,7 @@ final class ReaderHostViewController: UIViewController, UIGestureRecognizerDeleg
         let adapter = DirectionalNavigationAdapter(
             pointerPolicy: .init(types: [.mouse, .touch]),
             animatedTransition: true,
-            onNavigation: { [weak self] in self?.actions.onPageTurn() }
+            onNavigation: { [weak self] in self?.directionalNavigationRequested() }
         )
         adapter.bind(to: navigator)
         directionalAdapter = adapter
@@ -96,7 +105,7 @@ final class ReaderHostViewController: UIViewController, UIGestureRecognizerDeleg
         let adapter = DirectionalNavigationAdapter(
             pointerPolicy: .init(types: []),
             animatedTransition: true,
-            onNavigation: { [weak self] in self?.actions.onPageTurn() }
+            onNavigation: { [weak self] in self?.directionalNavigationRequested() }
         )
         adapter.bind(to: navigator)
         directionalAdapter = adapter
@@ -108,13 +117,35 @@ final class ReaderHostViewController: UIViewController, UIGestureRecognizerDeleg
         let point = gesture.location(in: navigator.view)
         if actions.openPDFHighlight(point) { return }
         if actions.isScrolling() { return actions.onTapCenter() }
-        switch Self.zone(for: point.x, width: navigator.view.bounds.width) {
-        case .left:
-            Task { if await navigator.goLeft(options: .animated) { actions.onPageTurn() } }
-        case .right:
-            Task { if await navigator.goRight(options: .animated) { actions.onPageTurn() } }
-        case .middle:
-            actions.onTapCenter()
+        let zone = Self.zone(for: point.x, width: navigator.view.bounds.width)
+        guard zone != .middle else { return actions.onTapCenter() }
+        Task {
+            actions.onReadingMovement(.began)
+            let moved = zone == .left
+                ? await navigator.goLeft(options: .animated)
+                : await navigator.goRight(options: .animated)
+            actions.onReadingMovement(moved ? .completed : .cancelled)
+            if moved { actions.onPageTurn() }
+        }
+    }
+
+    private func directionalNavigationRequested() {
+        actions.onReadingMovement(.began)
+        actions.onReadingMovement(.completed)
+        actions.onPageTurn()
+    }
+
+    @objc private func handleReadingPan(_ gesture: UIPanGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            actions.onReadingMovement(.began)
+        case .ended:
+            let distance = gesture.translation(in: navigator.view)
+            actions.onReadingMovement(hypot(distance.x, distance.y) >= 32 ? .completed : .cancelled)
+        case .cancelled, .failed:
+            actions.onReadingMovement(.cancelled)
+        default:
+            break
         }
     }
 
@@ -135,6 +166,7 @@ final class ReaderHostViewController: UIViewController, UIGestureRecognizerDeleg
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer is UITapGestureRecognizer else { return true }
         // Readium only learns of PDF selections later, so ask PDFKit.
         tapStartedOnSelection = pdfView(in: navigator.view)?.currentSelection.map { !($0.string ?? "").isEmpty } ?? false
         return true

@@ -95,12 +95,14 @@ struct LibraryStatsView: View {
     let books: [Book]
 
     var body: some View {
+        let counts = Dictionary(grouping: books, by: \.readingStatus).mapValues(\.count)
         List {
             Section("Your Library") {
-                stat("Books", count: books.count, color: .forest)
-                stat("In Progress", count: books.filter { $0.progression > 0 && $0.progression < 0.995 }.count, color: .teal)
-                stat("Finished", count: books.filter { $0.progression >= 0.995 }.count, color: .olive)
-                stat("Not Started", count: books.filter { $0.progression == 0 }.count, color: .slateBlue)
+                stat("Total Books", count: books.count, color: .forest)
+                stat(ReadingStatus.tbr.label, count: counts[.tbr, default: 0], color: .slateBlue)
+                stat(ReadingStatus.reading.label, count: counts[.reading, default: 0], color: .teal)
+                stat(ReadingStatus.finished.label, count: counts[.finished, default: 0], color: .olive)
+                stat(ReadingStatus.dnf.label, count: counts[.dnf, default: 0], color: .terracotta)
             }
             .listRowBackground(AppPalette.surface)
             Section("Formats") {

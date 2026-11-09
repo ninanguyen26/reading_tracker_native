@@ -43,6 +43,7 @@ final class ReaderModel: ObservableObject {
     private var bookmarkObservation: Task<Void, Never>?
     var highlightObservation: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
+    private var readingMovement: (origin: Locator, deadline: ContinuousClock.Instant?)?
     /// PDFKit's view inside the PDF navigator, used for search marks and highlights.
     weak var pdfView: PDFView?
     /// PDF highlights drawn as annotations, by highlight ID.
@@ -74,6 +75,7 @@ final class ReaderModel: ObservableObject {
     }
 
     private func applySettings() {
+        cancelReadingMovement()
         if let epub = navigator as? EPUBNavigatorViewController {
             epub.submitPreferences(settings.epubPreferences(systemDark: systemDark))
         } else if let pdf = navigator as? PDFNavigatorViewController {
@@ -122,6 +124,7 @@ final class ReaderModel: ObservableObject {
                 onTapCenter: { [weak self] in self?.chromeVisible.toggle() },
                 // Like a Kindle, turning the page tucks the toolbars away.
                 onPageTurn: { [weak self] in self?.chromeVisible = false },
+                onReadingMovement: { [weak self] movement in self?.trackReadingMovement(movement) },
                 onHighlightSelection: { [weak self] in self?.highlightSelection(openNote: false) },
                 onNoteOnSelection: { [weak self] in self?.highlightSelection(openNote: true) },
                 openPDFHighlight: { [weak self] point in self?.openPDFHighlight(at: point) ?? false }
@@ -177,6 +180,7 @@ final class ReaderModel: ObservableObject {
 
     func go(toSearchResult locator: Locator) {
         search.selected = locator
+        cancelReadingMovement()
         Task { _ = await navigator?.go(to: locator, options: .animated) }
         markSearchResult(locator)
     }
@@ -207,19 +211,66 @@ final class ReaderModel: ObservableObject {
     // MARK: Navigation
 
     func go(to link: Link) {
+        cancelReadingMovement()
         Task { _ = await navigator?.go(to: link, options: .animated) }
     }
 
     func go(to bookmark: Bookmark) {
         guard let locator = try? Locator(jsonString: bookmark.locator) else { return }
+        cancelReadingMovement()
         Task { _ = await navigator?.go(to: locator, options: .animated) }
     }
 
     /// Jumps to a point (0…1) through the whole book, e.g. from the slider.
     func go(toProgression progression: Double) {
+        cancelReadingMovement()
         Task {
             guard let target = await publication?.locate(progression: progression) else { return }
             _ = await navigator?.go(to: target, options: .animated)
+        }
+    }
+
+    func cancelReadingMovement() {
+        readingMovement = nil
+    }
+
+    private func trackReadingMovement(_ movement: ReaderHostViewController.ReadingMovement) {
+        switch movement {
+        case .began:
+            readingMovement = locator.map { ($0, nil) }
+        case .completed:
+            // A navigator can report its settled location after a swipe or page animation ends.
+            readingMovement?.deadline = .now.advanced(by: .seconds(3))
+            if let locator { checkReadingMovement(at: locator) }
+        case .cancelled:
+            cancelReadingMovement()
+        }
+    }
+
+    private func checkReadingMovement(at destination: Locator) {
+        guard let movement = readingMovement, let deadline = movement.deadline else { return }
+        guard ContinuousClock.now <= deadline else {
+            cancelReadingMovement()
+            return
+        }
+        let origin = movement.origin
+        let old = origin.locations
+        let new = destination.locations
+        let forward: Bool?
+        if let start = old.totalProgression, let end = new.totalProgression, start != end {
+            forward = end > start
+        } else if let start = old.position, let end = new.position, start != end {
+            forward = end > start
+        } else if origin.href == destination.href,
+                  let start = old.progression, let end = new.progression, start != end {
+            forward = end > start
+        } else {
+            forward = nil
+        }
+        guard let forward else { return }
+        cancelReadingMovement()
+        if forward {
+            Task { try? await environment.database.markReadingIfTBR(id: book.id) }
         }
     }
 
@@ -302,7 +353,12 @@ final class ReaderModel: ObservableObject {
 extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
     func navigator(_ navigator: Navigator, locationDidChange locator: Locator) {
         self.locator = locator
+        checkReadingMovement(at: locator)
         save(locator)
+    }
+
+    func navigator(_ navigator: Navigator, didJumpTo locator: Locator) {
+        cancelReadingMovement()
     }
 
     func navigator(_ navigator: PDFNavigatorViewController, setupPDFView view: PDFDocumentView) {

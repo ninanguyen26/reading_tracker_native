@@ -156,6 +156,7 @@ struct LibraryView: View {
         switch selectedTab {
         case .library:
             VStack(spacing: 0) {
+                readingStatusGrid
                 librarySearch
                 if model.loaded && model.books.isEmpty {
                     EmptyLibraryView { showingImporter = true }
@@ -171,6 +172,10 @@ struct LibraryView: View {
                                 .padding(.top, 40)
                         } else if !model.query.isEmpty && model.visibleBooks.isEmpty {
                             Text("No books match “\(model.query)”.")
+                                .foregroundStyle(AppPalette.secondaryText)
+                                .padding(.top, 40)
+                        } else if let status = model.readingStatusFilter, model.visibleBooks.isEmpty {
+                            Text("No books with the \(status.label) status.")
                                 .foregroundStyle(AppPalette.secondaryText)
                                 .padding(.top, 40)
                         }
@@ -214,6 +219,40 @@ struct LibraryView: View {
         case .settings:
             AppSettingsView()
         }
+    }
+
+    private var readingStatusGrid: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 5), spacing: 6) {
+            statusFilterButton("All", status: nil)
+            ForEach(ReadingStatus.allCases) { status in
+                statusFilterButton(status.label, status: status)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+    }
+
+    private func statusFilterButton(_ title: String, status: ReadingStatus?) -> some View {
+        let selected = model.readingStatusFilter == status
+        return Button {
+            searchFocused = false
+            model.readingStatusFilter = status
+        } label: {
+            Text(title)
+                .font(.footnote.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .padding(.horizontal, 4)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .foregroundStyle(selected ? AppPalette.onAccent : AppPalette.text)
+                .background(selected ? AppPalette.accent : AppPalette.surface, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(selected ? .clear : AppPalette.border))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(status == nil ? "All Books" : "\(title) books")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier("reading-filter-\(status?.rawValue ?? "all")")
     }
 
     private var librarySearch: some View {
@@ -369,6 +408,14 @@ struct LibraryView: View {
         let books = selectedBooks
         return HStack(spacing: 0) {
             Menu {
+                ReadingStatusOptions { status in
+                    model.setReadingStatus(status, for: books)
+                    endSelecting()
+                }
+            } label: {
+                selectionAction("Change Status", systemImage: "checklist")
+            }
+            Menu {
                 ForEach(model.shelfList.shelves) { shelf in
                     Button(shelf.name) {
                         model.add(books, to: shelf)
@@ -421,6 +468,13 @@ struct LibraryView: View {
                 Label("Book Details", systemImage: "info.circle")
             }
             Menu {
+                ReadingStatusOptions(current: book.readingStatus) { status in
+                    model.setReadingStatus(status, for: [book])
+                }
+            } label: {
+                Label("Change Status", systemImage: "checklist")
+            }
+            Menu {
                 ForEach(model.shelfList.shelves) { shelf in
                     Button { model.toggle(book, on: shelf) } label: {
                         if model.shelfList.isBook(book.id, on: shelf.id) {
@@ -456,6 +510,25 @@ struct LibraryView: View {
     }
 }
 
+struct ReadingStatusOptions: View {
+    var current: ReadingStatus? = nil
+    let onSelect: (ReadingStatus) -> Void
+
+    var body: some View {
+        ForEach(ReadingStatus.allCases) { status in
+            Button {
+                onSelect(status)
+            } label: {
+                if status == current {
+                    Label(status.label, systemImage: "checkmark")
+                } else {
+                    Text(status.label)
+                }
+            }
+        }
+    }
+}
+
 /// Keep the original system glass/pill treatment after moving the controls.
 private struct LibraryControlSurface: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
@@ -474,9 +547,8 @@ private struct BookCell: View {
     var selected: Bool?
 
     private var progressLabel: String {
-        if book.progression >= 0.995 { return "Done" }
-        if book.progression > 0 { return book.progression.formatted(.percent.precision(.fractionLength(0))) }
-        return "New"
+        if book.progression == 0 && book.readingStatus == .tbr { return "New" }
+        return book.progression.formatted(.percent.precision(.fractionLength(0)))
     }
 
     var body: some View {

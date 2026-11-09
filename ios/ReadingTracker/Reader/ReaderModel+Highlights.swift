@@ -79,6 +79,7 @@ extension ReaderModel {
 
     func go(to highlight: Highlight) {
         guard let target = try? Locator(jsonString: highlight.locator) else { return }
+        cancelReadingMovement()
         Task { _ = await navigator?.go(to: target, options: .animated) }
     }
 

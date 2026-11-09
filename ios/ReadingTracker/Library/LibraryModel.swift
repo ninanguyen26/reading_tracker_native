@@ -7,6 +7,7 @@ final class LibraryModel: ObservableObject {
     @Published private(set) var books: [Book] = []
     @Published private(set) var loaded = false
     @Published var query = ""
+    @Published var readingStatusFilter: ReadingStatus?
     @Published var sort: LibrarySort {
         didSet { UserDefaults.standard.set(sort.rawValue, forKey: Self.sortKey) }
     }
@@ -63,7 +64,9 @@ final class LibraryModel: ObservableObject {
     }
 
     var visibleBooks: [Book] {
-        booksOnActiveShelf.matching(query).sorted(by: sort)
+        let books = booksOnActiveShelf.matching(query)
+        return (readingStatusFilter.map { status in books.filter { $0.readingStatus == status } } ?? books)
+            .sorted(by: sort)
     }
 
     func select(_ shelf: Shelf?) {
@@ -102,6 +105,16 @@ final class LibraryModel: ObservableObject {
 
     func remove(_ books: [Book], from shelf: Shelf) {
         runShelfChange { try await $0.setBooks(ids: books.map(\.id), onShelf: shelf.id, false) }
+    }
+
+    func setReadingStatus(_ status: ReadingStatus, for books: [Book]) {
+        Task {
+            do {
+                try await environment.database.setReadingStatus(status, for: books.map(\.id))
+            } catch {
+                errorMessage = "Reading status couldn’t be updated. \(error.localizedDescription)"
+            }
+        }
     }
 
     private func runShelfChange(_ change: @escaping (AppDatabase) async throws -> Void) {

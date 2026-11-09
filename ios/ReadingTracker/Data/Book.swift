@@ -9,6 +9,21 @@ enum BookFormat: String, Codable, DatabaseValueConvertible, Sendable {
     var label: String { rawValue.uppercased() }
 }
 
+enum ReadingStatus: String, Codable, CaseIterable, Identifiable, DatabaseValueConvertible, Sendable {
+    case tbr, reading, finished, dnf
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .tbr: "TBR"
+        case .reading: "Reading"
+        case .finished: "Finished"
+        case .dnf: "DNF"
+        }
+    }
+}
+
 /// One embedded series membership, including fractional positions such as 2.5.
 struct BookSeries: Codable, Hashable, Sendable {
     var name: String
@@ -64,6 +79,7 @@ struct Book: Codable, Identifiable, Hashable, Sendable, FetchableRecord, Persist
     var locator: String?
     /// 0…1 through the whole book
     var progression: Double
+    var readingStatus: ReadingStatus = .tbr
 
     enum Columns {
         static let title = Column(CodingKeys.title)

@@ -11,6 +11,7 @@ struct BookDetailsScreen: View {
     @State private var expandedDescription = false
     @State private var loadingPages = true
     @State private var showingContentWarnings = false
+    @State private var readingStatusError: String?
     private var description: String? { BookDetailsText.description(book.description) }
 
     init(book: Book, coverURL: URL?, onRead: (() -> Void)? = nil) {
@@ -56,6 +57,7 @@ struct BookDetailsScreen: View {
                         }
                         .buttonStyle(AppPrimaryButtonStyle())
                     }
+                    readingStatusControl
                     if let description { synopsisCard(description) }
                     informationCard
                     if let moods = book.hardcoverMoods, !moods.isEmpty {
@@ -90,6 +92,14 @@ struct BookDetailsScreen: View {
             }
             .sheet(isPresented: $showingLookup) { OpenLibraryLookupScreen(book: book) { book = $0 } }
             .sheet(isPresented: $showingGenres) { BookGenreEditor(book: book) { book = $0 } }
+            .alert("Couldn’t update reading status", isPresented: Binding(
+                get: { readingStatusError != nil },
+                set: { if !$0 { readingStatusError = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(readingStatusError ?? "")
+            }
             .task {
                 do {
                     for try await books in environment.database.observeBooks() {
@@ -110,6 +120,31 @@ struct BookDetailsScreen: View {
                     id: book.id, metadata: OpenLibraryMetadata(work: work, edition: nil), fields: [.description]
                 )
             }
+        }
+    }
+
+    private var readingStatusControl: some View {
+        HStack {
+            heading("Reading Status")
+            Spacer()
+            Menu {
+                ReadingStatusOptions(current: book.readingStatus) { status in
+                    let id = book.id
+                    Task {
+                        do {
+                            try await environment.database.setReadingStatus(status, for: [id])
+                        } catch {
+                            readingStatusError = error.localizedDescription
+                        }
+                    }
+                }
+            } label: {
+                Label(book.readingStatus.label, systemImage: "chevron.up.chevron.down")
+            }
+            .buttonStyle(DetailsActionStyle())
+            .accessibilityLabel("Reading Status")
+            .accessibilityValue(book.readingStatus.label)
+            .accessibilityIdentifier("book-reading-status")
         }
     }
 

@@ -156,4 +156,70 @@ final class ShelfUITests: XCTestCase {
         XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 5))
         XCTAssertFalse(book(pdfTitle, in: app).exists)
     }
+
+    func testReadingStatusControlsFilterBooksAndUpdateStats() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-reset-library", "-import-samples", "-open-library-fixtures",
+                               "-hardcover-reading-tags-fixture"]
+        app.launch()
+        let epub = book(epubTitle, in: app)
+        let pdf = book(pdfTitle, in: app)
+        XCTAssertTrue(epub.waitForExistence(timeout: 15))
+        XCTAssertTrue(pdf.waitForExistence(timeout: 15))
+
+        let all = app.buttons["reading-filter-all"]
+        let tbr = app.buttons["reading-filter-tbr"]
+        let reading = app.buttons["reading-filter-reading"]
+        let finished = app.buttons["reading-filter-finished"]
+        let dnf = app.buttons["reading-filter-dnf"]
+        XCTAssertTrue(all.isSelected)
+        XCTAssertLessThan(all.frame.maxY, app.textFields["library-search"].frame.minY)
+        tbr.tap()
+        XCTAssertTrue(epub.exists)
+        XCTAssertTrue(pdf.exists)
+
+        pdf.press(forDuration: 1)
+        menuItem("Change Status", in: app).tap()
+        menuItem("Reading", in: app).tap()
+        reading.tap()
+        XCTAssertTrue(pdf.waitForExistence(timeout: 5))
+        XCTAssertFalse(epub.exists)
+
+        pdf.press(forDuration: 1)
+        menuItem("Book Details", in: app).tap()
+        let status = app.buttons["book-reading-status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        XCTAssertEqual(status.value as? String, "Reading")
+        status.tap()
+        menuItem("DNF", in: app).tap()
+        let didNotFinish = NSPredicate(format: "value == %@", "DNF")
+        wait(for: [expectation(for: didNotFinish, evaluatedWith: status)], timeout: 5)
+        app.buttons["Done"].tap()
+        dnf.tap()
+        XCTAssertTrue(pdf.waitForExistence(timeout: 5))
+        XCTAssertFalse(epub.exists)
+
+        all.tap()
+        app.buttons["Select"].tap()
+        app.buttons["Select All"].tap()
+        app.buttons["Change Status"].tap()
+        menuItem("Finished", in: app).tap()
+        finished.tap()
+        XCTAssertTrue(epub.waitForExistence(timeout: 5))
+        XCTAssertTrue(pdf.exists)
+
+        let library = XCTAttachment(screenshot: app.screenshot())
+        library.name = "Library Reading Status Grid"
+        library.lifetime = .keepAlways
+        add(library)
+
+        app.buttons["tab-stats"].tap()
+        let finishedCount = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Finished, 2")).firstMatch
+        XCTAssertTrue(finishedCount.waitForExistence(timeout: 5))
+        let stats = XCTAttachment(screenshot: app.screenshot())
+        stats.name = "Reading Status Stats"
+        stats.lifetime = .keepAlways
+        add(stats)
+    }
 }

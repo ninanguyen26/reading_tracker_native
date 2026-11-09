@@ -54,11 +54,13 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(book.languages, ["en", "vi"])
         XCTAssertGreaterThan(book.size, 0)
         XCTAssertEqual(book.progression, 0)
+        XCTAssertEqual(book.readingStatus, .tbr)
         XCTAssertNotNil(book.coverFileName)
         XCTAssertTrue(FileManager.default.fileExists(atPath: storage.url(for: book.fileName).path))
         XCTAssertNotNil(UIImage(contentsOfFile: storage.url(for: book.coverFileName!).path))
         let saved = try await database.allBooks()
         XCTAssertEqual(saved.map(\.id), [book.id])
+        XCTAssertEqual(saved[0].readingStatus, .tbr)
         XCTAssertEqual(saved[0].description, book.description)
         XCTAssertEqual(saved[0].series, book.series)
         XCTAssertEqual(saved[0].subjects, book.subjects)
@@ -251,6 +253,7 @@ final class LibraryTests: XCTestCase {
         let book = try XCTUnwrap(fetched)
         XCTAssertEqual(book.title, "Existing Book")
         XCTAssertEqual(book.progression, 0.42)
+        XCTAssertEqual(book.readingStatus, .tbr)
         XCTAssertEqual(book.locator, #"{"href":"chapter.xhtml"}"#)
         XCTAssertNil(book.description)
         XCTAssertEqual(book.series, [])
@@ -262,11 +265,27 @@ final class LibraryTests: XCTestCase {
         let book = try await importer.importBook(from: fixture("sample", "pdf"))
         try await database.saveProgress(id: book.id, locator: #"{"href":"x"}"#, progression: 1.4)
         try await database.markOpened(id: book.id, at: Date(timeIntervalSince1970: 100))
+        try await database.setReadingStatus(.dnf, for: [book.id])
         let fetched = try await database.book(id: book.id)
         let saved = try XCTUnwrap(fetched)
         XCTAssertEqual(saved.locator, #"{"href":"x"}"#)
         XCTAssertEqual(saved.progression, 1) // clamped
+        XCTAssertEqual(saved.readingStatus, .dnf)
         XCTAssertEqual(saved.lastOpenedAt, Date(timeIntervalSince1970: 100))
+    }
+
+    func testStartingToReadOnlyPromotesTBR() async throws {
+        let book = try await importer.importBook(from: fixture("sample", "pdf"))
+        try await database.markReadingIfTBR(id: book.id)
+        let started = try await database.book(id: book.id)
+        XCTAssertEqual(started?.readingStatus, .reading)
+
+        for status in [ReadingStatus.finished, .dnf] {
+            try await database.setReadingStatus(status, for: [book.id])
+            try await database.markReadingIfTBR(id: book.id)
+            let saved = try await database.book(id: book.id)
+            XCTAssertEqual(saved?.readingStatus, status)
+        }
     }
 
     // MARK: Helpers
