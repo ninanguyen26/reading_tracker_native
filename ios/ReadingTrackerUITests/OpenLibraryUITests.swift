@@ -52,7 +52,7 @@ final class OpenLibraryUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Romance"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Fantasy"].exists)
         XCTAssertTrue(app.staticTexts["Science & Tech"].exists)
-        app.buttons["Done"].tap()
+        app.navigationBars["Book Details"].buttons.firstMatch.tap()
         app.terminate()
         app.launchArguments = []
         app.launch()
@@ -91,16 +91,17 @@ final class OpenLibraryUITests: XCTestCase {
                                "-hardcover-reading-tags-fixture"]
         app.launch()
         openPDFDetails(app)
-        app.swipeDown()
-        let rating = app.staticTexts["hardcover-rating"]
+        let rating = app.descendants(matching: .any)["hardcover-rating"].firstMatch
+        for _ in 0..<4 where !rating.isHittable { app.swipeUp() }
         XCTAssertTrue(rating.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Metadata"].exists)
         XCTAssertTrue(rating.label.contains("4.2 out of 5"))
-        let header = XCTAttachment(screenshot: app.screenshot())
-        header.name = "Hardcover Rating"
-        header.lifetime = .keepAlways
-        add(header)
+        let metadata = XCTAttachment(screenshot: app.screenshot())
+        metadata.name = "Hardcover Rating in Metadata"
+        metadata.lifetime = .keepAlways
+        add(metadata)
         let reveal = app.buttons["Show content warnings"]
-        for _ in 0..<4 where !reveal.isHittable { app.swipeUp() }
+        for _ in 0..<4 where !reveal.isHittable { app.swipeDown() }
         XCTAssertTrue(reveal.waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["reflective"].exists)
         XCTAssertTrue(app.staticTexts["tense"].exists)
@@ -129,7 +130,7 @@ final class OpenLibraryUITests: XCTestCase {
         details.name = "Automatically Enriched Import"
         details.lifetime = .keepAlways
         add(details)
-        app.buttons["Done"].tap()
+        app.navigationBars["Book Details"].buttons.firstMatch.tap()
         app.terminate()
         app.launchArguments = []
         app.launch()

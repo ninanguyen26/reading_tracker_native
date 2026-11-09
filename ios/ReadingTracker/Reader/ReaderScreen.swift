@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ReaderScreen: View {
     @StateObject private var model: ReaderModel
-    private let coverURL: URL?
+    private let onShowDetails: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @State private var sheet: Sheet?
     /// While dragging the slider, the position it would jump to.
@@ -10,13 +10,13 @@ struct ReaderScreen: View {
     @State private var scrubCommit: Task<Void, Never>?
 
     enum Sheet: Identifiable {
-        case settings, navigation, search, details
+        case settings, navigation, search
         var id: Self { self }
     }
 
-    init(book: Book, environment: AppEnvironment) {
+    init(book: Book, environment: AppEnvironment, onShowDetails: @escaping () -> Void) {
         _model = StateObject(wrappedValue: ReaderModel(book: book, environment: environment))
-        coverURL = book.coverFileName.map(environment.storage.url(for:))
+        self.onShowDetails = onShowDetails
     }
 
     private var palette: ReaderSettings.Palette { model.palette }
@@ -73,7 +73,7 @@ struct ReaderScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button { sheet = .details } label: {
+                Button(action: onShowDetails) {
                     Label("Book Details", systemImage: "info.circle")
                 }
                 Button { sheet = .search } label: {
@@ -108,11 +108,6 @@ struct ReaderScreen: View {
                 NavigationSheet(model: model)
             case .search:
                 SearchSheet(model: model)
-            case .details:
-                BookDetailsScreen(
-                    book: model.book,
-                    coverURL: coverURL
-                )
             }
         }
         .sheet(isPresented: Binding(get: { model.editing != nil && sheet == nil }, set: { if !$0 { model.editing = nil } })) {

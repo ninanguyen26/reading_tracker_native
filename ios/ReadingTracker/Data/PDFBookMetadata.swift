@@ -7,6 +7,7 @@ struct PDFBookMetadata {
     var series: [BookSeries] = []
     var subjects: [String] = []
     var languages: [String] = []
+    var editionYear: Int?
 
     init(url: URL) {
         guard let document = PDFDocument(url: url), let pdf = document.documentRef else { return }
@@ -47,6 +48,11 @@ struct PDFBookMetadata {
         let languageTags = xmp.values(namespace: PDFXMP.dc, name: "language")
         if !languageTags.isEmpty { languages = Self.unique(languageTags) }
 
+        // Dublin Core `issued` explicitly describes publication. Generic XMP dates do not.
+        let issuedDates = xmp.values(namespace: PDFXMP.dcterms, name: "issued")
+        let years = Set(issuedDates.compactMap(Self.publicationYear))
+        if years.count == 1 { editionYear = years.first }
+
         // Calibre uses a qualified RDF value with a series-index qualifier.
         series = xmp.nodes(namespace: PDFXMP.calibre, name: "series").compactMap { node in
             let value = node.values(namespace: PDFXMP.rdf, name: "value").first ?? Self.clean(node.text)
@@ -55,6 +61,23 @@ struct PDFBookMetadata {
                 .first.flatMap(Double.init).flatMap { $0.isFinite ? $0 : nil }
             return BookSeries(name: name, position: position)
         }
+    }
+
+    private static func publicationYear(_ value: String) -> Int? {
+        let pattern = #"^[0-9]{4}(-[0-9]{2}(-[0-9]{2}(T.+)?)?)?$"#
+        guard value.range(of: pattern, options: .regularExpression) != nil,
+              let year = Int(value.prefix(4)), year > 0 else { return nil }
+        let calendar = Calendar(identifier: .gregorian)
+        let date = value.prefix(10).split(separator: "-").compactMap { Int($0) }
+        let components = DateComponents(year: year, month: date.count > 1 ? date[1] : 1,
+                                        day: date.count > 2 ? date[2] : 1)
+        guard components.isValidDate(in: calendar) else { return nil }
+        if value.count > 10 {
+            let formatter = ISO8601DateFormatter()
+            if value.contains(".") { formatter.formatOptions.insert(.withFractionalSeconds) }
+            guard formatter.date(from: value) != nil else { return nil }
+        }
+        return year
     }
 
     fileprivate static func clean(_ text: String?) -> String? {
@@ -75,6 +98,7 @@ struct PDFBookMetadata {
 /// A small namespace-aware XMP reader. RDF arrays remain separate values.
 private final class PDFXMP: NSObject, XMLParserDelegate {
     static let dc = "http://purl.org/dc/elements/1.1/"
+    static let dcterms = "http://purl.org/dc/terms/"
     static let rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
     static let xml = "http://www.w3.org/XML/1998/namespace"
     static let pdf = "http://ns.adobe.com/pdf/1.3/"

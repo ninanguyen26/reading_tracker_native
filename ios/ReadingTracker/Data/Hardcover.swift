@@ -5,6 +5,16 @@ protocol HardcoverEnriching: Sendable {
     func metadata(for book: Book) async throws -> HardcoverMetadata?
 }
 
+struct HardcoverPublicationYears: Codable, Hashable, Sendable {
+    struct Entry: Codable, Hashable, Sendable {
+        var year: Int
+        var sourceURL: String
+    }
+
+    var release: Entry? = nil
+    var edition: Entry? = nil
+}
+
 struct HardcoverMetadata: Sendable {
     var bookID: Int
     var description: String?
@@ -16,6 +26,8 @@ struct HardcoverMetadata: Sendable {
     var ratingsCount: Int? = nil
     /// Only populated by a unique, exact ISBN edition match. Never book-level pages.
     var pages: BookPageCount?
+    /// Nil when the catalog server predates publication year support.
+    var publicationYears: HardcoverPublicationYears? = nil
     var sourceURL: String { "https://hardcover.app/books/\(bookID)" }
 
     func filling(_ original: Book) -> Book {
@@ -47,6 +59,7 @@ struct HardcoverMetadata: Sendable {
     }
 
     func applyReadingMetadata(to book: inout Book) {
+        if let publicationYears { book.hardcoverPublicationYears = publicationYears }
         if book.hardcoverMoods == nil, let moods {
             let tags = BookDetailsText.nonempty(moods)
             book.hardcoverMoods = tags
@@ -83,16 +96,29 @@ extension AppDatabase {
         }
     }
 
-    func saveHardcoverReadingMetadata(id: String, metadata: HardcoverMetadata?) async throws {
+    func saveHardcoverReadingMetadata(id: String, metadata: HardcoverMetadata?, recordNoMatch: Bool = false) async throws {
         try await writer.write { db in
-            guard var book = try Book.fetchOne(db, key: id), book.needsHardcoverReadingMetadata else { return }
+            guard var book = try Book.fetchOne(db, key: id), book.needsHardcoverReadingMetadata ||
+                    (recordNoMatch && book.hardcoverPublicationYears == nil) else { return }
             if let metadata {
                 metadata.applyReadingMetadata(to: &book)
             } else {
                 if book.hardcoverMoods == nil { book.hardcoverMoods = [] }
                 if book.hardcoverContentWarnings == nil { book.hardcoverContentWarnings = [] }
                 if book.hardcoverRatingsCount == nil { book.hardcoverRatingsCount = 0 }
+                if recordNoMatch && book.hardcoverPublicationYears == nil {
+                    book.hardcoverPublicationYears = HardcoverPublicationYears()
+                }
             }
+            try book.update(db)
+        }
+    }
+
+    func saveHardcoverPublicationYears(id: String, isbn: String?, years: HardcoverPublicationYears) async throws {
+        try await writer.write { db in
+            guard var book = try Book.fetchOne(db, key: id), book.isbn == isbn,
+                  book.hardcoverPublicationYears == nil else { return }
+            book.hardcoverPublicationYears = years
             try book.update(db)
         }
     }
@@ -179,10 +205,22 @@ actor HardcoverClient: HardcoverEnriching {
                     pages = BookPageCount(count: edition.pages, source: .hardcover,
                         editionKey: "https://hardcover.app/books/\(record.bookID)/editions/\(edition.id)")
                 }
+                let bookURL = "https://hardcover.app/books/\(record.bookID)"
+                let publicationYears = record.publicationYears.map { years in
+                    var result = HardcoverPublicationYears()
+                    if let year = years.releaseYear, (1...9999).contains(year) {
+                        result.release = .init(year: year, sourceURL: bookURL)
+                    }
+                    if let edition = years.exactEdition, edition.id > 0, (1...9999).contains(edition.year),
+                       let isbn, OpenLibraryISBN.normalize(edition.isbn) == isbn {
+                        result.edition = .init(year: edition.year, sourceURL: "\(bookURL)/editions/\(edition.id)")
+                    }
+                    return result
+                }
                 return HardcoverMetadata(bookID: record.bookID, description: record.description,
                     series: record.series, genres: record.genres, moods: record.moods,
                     contentWarnings: record.contentWarnings, rating: record.rating,
-                    ratingsCount: record.ratingsCount, pages: pages)
+                    ratingsCount: record.ratingsCount, pages: pages, publicationYears: publicationYears)
             } catch {
                 if Task.isCancelled { throw CancellationError() }
                 if case HardcoverError.rateLimited = error { throw error }
@@ -205,8 +243,14 @@ actor HardcoverClient: HardcoverEnriching {
         var rating: Double?
         var ratingsCount: Int?
         var exactEdition: Edition?
+        var publicationYears: PublicationYears?
     }
     private struct Edition: Decodable { var id: Int; var isbn: String; var pages: Int }
+    private struct PublicationYears: Decodable {
+        struct Edition: Decodable { var id: Int; var isbn: String; var year: Int }
+        var releaseYear: Int?
+        var exactEdition: Edition?
+    }
 }
 
 #if DEBUG

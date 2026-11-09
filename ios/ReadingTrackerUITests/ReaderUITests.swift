@@ -133,7 +133,7 @@ final class ReaderUITests: XCTestCase {
             app.buttons["Book Details"].tap()
             XCTAssertTrue(app.navigationBars["Book Details"].waitForExistence(timeout: 5))
             captureDetails("\(appearance) Details", in: app)
-            app.buttons["Done"].tap()
+            app.navigationBars["Book Details"].buttons.firstMatch.tap()
             app.buttons["tab-stats"].tap()
             XCTAssertTrue(app.navigationBars["Stats"].exists)
             captureDetails("\(appearance) Stats", in: app)
@@ -175,6 +175,7 @@ final class ReaderUITests: XCTestCase {
         app.scrollViews.firstMatch.swipeDown()
         app.buttons["Read Book"].tap()
         waitForProgress(in: app, matching: "Location 1 of .*")
+        goBack(in: app)
     }
 
     func testBookDetailsButtonsAndLayoutInBothAppearances() {
@@ -193,7 +194,7 @@ final class ReaderUITests: XCTestCase {
             XCTAssertTrue(lookup.exists)
             XCTAssertGreaterThanOrEqual(lookup.frame.height, 43.5)
             captureDetails("\(appearance) Redesigned Metadata", in: app)
-            app.buttons["Done"].tap()
+            app.navigationBars["Book Details"].buttons.firstMatch.tap()
             app.terminate()
         }
     }
@@ -212,11 +213,25 @@ final class ReaderUITests: XCTestCase {
         captureDetails("PDF Book Details", in: app)
         app.buttons["Read Book"].tap()
         waitForProgress(in: app, matching: "Page 1 of 6 · 0%")
+        turnPage(in: app)
+        let page = waitForProgress(in: app, matching: "Page 2 of 6 · \\d+%")
         showToolbar(in: app)
         app.buttons["Book Details"].tap()
-        XCTAssertTrue(app.navigationBars["Book Details"].waitForExistence(timeout: 5))
-        app.buttons["Done"].tap()
-        XCTAssertTrue(progress(in: app).exists)
+        let details = app.navigationBars["Book Details"]
+        XCTAssertTrue(details.waitForExistence(timeout: 5))
+        let continueReading = app.buttons["Continue Reading"]
+        XCTAssertTrue(continueReading.isHittable)
+        let lookup = app.buttons["find-missing-details"]
+        for _ in 0..<4 where !lookup.isHittable { app.scrollViews.firstMatch.swipeUp() }
+        lookup.tap()
+        let lookupBar = app.navigationBars["Find Missing Details"]
+        XCTAssertTrue(lookupBar.waitForExistence(timeout: 5))
+        lookupBar.buttons["Cancel"].tap()
+        XCTAssertTrue(details.waitForExistence(timeout: 5))
+        XCTAssertTrue(continueReading.isHittable)
+        continueReading.tap()
+        XCTAssertTrue(app.navigationBars[pdfTitle].waitForExistence(timeout: 5))
+        waitForProgress(in: app, matching: NSRegularExpression.escapedPattern(for: page))
     }
 
     private func captureDetails(_ name: String, in app: XCUIApplication) {

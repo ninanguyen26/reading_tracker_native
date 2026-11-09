@@ -25,7 +25,10 @@ export function validateInput(input) {
     throw new CatalogError(400,'insufficient_identifiers');
   return {isbn: identifier, title: values.title, author: values.author};
 }
-const fields = `id title description rating ratings_count cached_tags contributions { author { name } } book_series { position series { name } }`;
+const fields = `id title description release_year rating ratings_count cached_tags contributions { author { name } } book_series { position series { name } }`;
+function publicationYear(value) {
+  return Number.isInteger(value) && value >= 1 && value <= 9999 ? value : null;
+}
 function tagNames(tags) {
   return Array.isArray(tags) ? [...new Set(tags.map(t => typeof t === 'string' ? t : t?.tag ?? t?.name)
     .filter(t => typeof t === 'string' && t.trim()).map(t => t.trim().slice(0,100)))].slice(0,30) : [];
@@ -41,6 +44,8 @@ function metadata(record, edition = null, matchedISBN = null) {
   const ratingsCount = Number.isSafeInteger(record.ratings_count) && record.ratings_count >= 0
     ? record.ratings_count : null;
   const rating = typeof record.rating === 'string' && record.rating.trim() ? Number(record.rating) : record.rating;
+  const editionID = Number.isInteger(edition?.id) && edition.id > 0 ? edition.id : null;
+  const editionYear = publicationYear(edition?.release_year);
   return {
     bookID: record.id,
     description: typeof record.description === 'string' ? record.description.slice(0,30000) : null,
@@ -51,8 +56,12 @@ function metadata(record, edition = null, matchedISBN = null) {
     contentWarnings: tagNames(warningTags(record.cached_tags)),
     rating: ratingsCount > 0 && Number.isFinite(rating) && rating >= 0 && rating <= 5 ? rating : null,
     ratingsCount,
-    exactEdition: edition && Number.isInteger(edition.id) && edition.id > 0 && Number.isInteger(edition.pages) && edition.pages > 0
-      ? {id: edition.id, isbn: matchedISBN, pages: edition.pages} : null
+    exactEdition: editionID && Number.isInteger(edition.pages) && edition.pages > 0
+      ? {id: editionID, isbn: matchedISBN, pages: edition.pages} : null,
+    publicationYears: {
+      releaseYear: publicationYear(record.release_year),
+      exactEdition: editionID && editionYear ? {id: editionID, isbn: matchedISBN, year: editionYear} : null
+    }
   };
 }
 
@@ -135,7 +144,7 @@ export class Catalog {
     if (value.isbn) {
       const result = await this.query(`query Edition($isbn:String!) {
         editions(where:{_or:[{isbn_10:{_eq:$isbn}},{isbn_13:{_eq:$isbn}}]},limit:2) {
-          id isbn_10 isbn_13 pages book { ${fields} }
+          id isbn_10 isbn_13 pages release_year book { ${fields} }
         }
       }`,{isbn:value.isbn});
       if (!Array.isArray(result.editions)) throw new CatalogError(502,'invalid_catalog_response');

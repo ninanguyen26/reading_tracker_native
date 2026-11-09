@@ -102,6 +102,7 @@ final class LibraryTests: XCTestCase {
             <x:xmpmeta xmlns:x="adobe:ns:meta/">
             <r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
             <r:Description xmlns:d="http://purl.org/dc/elements/1.1/"
+                xmlns:terms="http://purl.org/dc/terms/"
                 xmlns:c="http://calibre-ebook.com/xmp-namespace"
                 xmlns:s="http://calibre-ebook.com/xmp-namespace-series-index">
                 <d:description><r:Alt>
@@ -110,6 +111,7 @@ final class LibraryTests: XCTestCase {
                 </r:Alt></d:description>
                 <d:subject><r:Bag><r:li>Travel</r:li><r:li>  Islands </r:li><r:li>travel</r:li><r:li> </r:li></r:Bag></d:subject>
                 <d:language><r:Bag><r:li>en-GB</r:li><r:li>vi</r:li></r:Bag></d:language>
+                <terms:issued>2008-10-15</terms:issued>
                 <c:series><r:Description><r:value>Island Stories</r:value><s:series_index>2.5</s:series_index></r:Description></c:series>
                 <c:series><r:Description><r:value>Coastal Tales</r:value><s:series_index>NaN</s:series_index></r:Description></c:series>
             </r:Description></r:RDF></x:xmpmeta>
@@ -127,16 +129,19 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(saved.series, book.series)
         XCTAssertEqual(saved.subjects, book.subjects)
         XCTAssertEqual(saved.languages, book.languages)
+        XCTAssertEqual(saved.publicationYear?.label, "Edition Year")
+        XCTAssertEqual(saved.publicationYear?.year, 2008)
     }
 
     func testImportsPDFDocumentPropertiesWithoutXMP() async throws {
-        let source = try metadataPDF(info: "/Subject (  Notes about coastal life.  ) /Keywords (Travel; Islands, travel)", language: "vi")
+        let source = try metadataPDF(info: "/Subject (  Notes about coastal life.  ) /Keywords (Travel; Islands, travel) /CreationDate (D:20260101000000Z)", language: "vi")
         defer { try? FileManager.default.removeItem(at: source) }
         let book = try await importer.importBook(from: source)
         XCTAssertEqual(book.description, "Notes about coastal life.")
         XCTAssertEqual(book.subjects, ["Travel", "Islands"])
         XCTAssertEqual(book.languages, ["vi"])
         XCTAssertTrue(book.series.isEmpty)
+        XCTAssertNil(book.publicationYear)
     }
 
     func testMalformedPDFXMPFallsBackToDocumentProperties() async throws {
@@ -259,6 +264,8 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(book.series, [])
         XCTAssertEqual(book.subjects, [])
         XCTAssertEqual(book.languages, [])
+        XCTAssertFalse(book.didReadEmbeddedEditionYear)
+        XCTAssertNil(book.publicationYear)
     }
 
     func testSavesProgressAndLastOpened() async throws {

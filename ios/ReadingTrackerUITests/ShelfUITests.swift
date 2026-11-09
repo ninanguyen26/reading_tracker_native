@@ -157,6 +157,48 @@ final class ShelfUITests: XCTestCase {
         XCTAssertFalse(book(pdfTitle, in: app).exists)
     }
 
+    func testBookDetailsBackPreservesShelfSearchAndScroll() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-reset-library", "-import-samples", "-layout-samples", "-open-library-fixtures"]
+        app.launch()
+        let allBooks = app.buttons["shelf-all"]
+        wait(for: [expectation(for: NSPredicate(format: "label == %@", "All Books, 6 books"), evaluatedWith: allBooks)], timeout: 15)
+
+        app.buttons["Select"].tap()
+        app.buttons["Select All"].tap()
+        app.buttons["Add to Shelf"].tap()
+        menuItem("New Shelf…", in: app).tap()
+        enterName("Favorites", in: app)
+        let shelf = app.buttons["shelf-Favorites"]
+        XCTAssertTrue(shelf.waitForExistence(timeout: 5))
+        shelf.tap()
+
+        let search = app.textFields["library-search"]
+        search.tap()
+        search.typeText("a\n")
+        let library = app.scrollViews["library-scroll"]
+        let firstBook = app.buttons.matching(identifier: "book-\(epubTitle)").firstMatch
+        let initialY = firstBook.frame.minY
+        library.swipeUp()
+        library.swipeUp()
+        let lastBook = app.buttons.matching(identifier: "book-\(epubTitle)").element(boundBy: 2)
+        XCTAssertTrue(lastBook.isHittable)
+        XCTAssertLessThan(firstBook.frame.minY, initialY - 50)
+        let scrolledY = lastBook.frame.minY
+        lastBook.press(forDuration: 1)
+        menuItem("Book Details", in: app).tap()
+        let details = app.navigationBars["Book Details"]
+        XCTAssertTrue(details.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["tab-library"].exists)
+        details.buttons.firstMatch.tap()
+
+        XCTAssertTrue(app.navigationBars["Library"].waitForExistence(timeout: 5))
+        XCTAssertTrue(shelf.isSelected)
+        XCTAssertEqual(search.value as? String, "a")
+        XCTAssertTrue(lastBook.isHittable)
+        XCTAssertEqual(lastBook.frame.minY, scrolledY, accuracy: 3)
+    }
+
     func testReadingStatusControlsFilterBooksAndUpdateStats() {
         let app = XCUIApplication()
         app.launchArguments = ["-reset-library", "-import-samples", "-open-library-fixtures",
@@ -194,7 +236,7 @@ final class ShelfUITests: XCTestCase {
         menuItem("DNF", in: app).tap()
         let didNotFinish = NSPredicate(format: "value == %@", "DNF")
         wait(for: [expectation(for: didNotFinish, evaluatedWith: status)], timeout: 5)
-        app.buttons["Done"].tap()
+        app.navigationBars["Book Details"].buttons.firstMatch.tap()
         dnf.tap()
         XCTAssertTrue(pdf.waitForExistence(timeout: 5))
         XCTAssertFalse(epub.exists)

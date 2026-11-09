@@ -76,11 +76,9 @@ final class LibraryModel: ObservableObject {
     /// Creates a shelf. With no books (the shelf bar) it opens the new shelf; otherwise it adds them to it.
     func createShelf(named name: String, adding books: [Book] = []) {
         runShelfChange { database in
-            guard let shelf = try await database.createShelf(named: name) else { return }
+            guard let shelf = try await database.createShelf(named: name, adding: books.map(\.id)) else { return }
             if books.isEmpty {
                 self.select(shelf)
-            } else {
-                try await database.setBooks(ids: books.map(\.id), onShelf: shelf.id, true)
             }
         }
     }

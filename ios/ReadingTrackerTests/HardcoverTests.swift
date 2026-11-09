@@ -67,12 +67,16 @@ final class HardcoverTests: XCTestCase {
         XCTAssertEqual(metadata?.rating, 4.24)
         XCTAssertEqual(metadata?.ratingsCount, 1283)
         XCTAssertEqual(metadata?.series.first?.position, 2.5)
+        XCTAssertEqual(metadata?.publicationYears?.release?.year, 1980)
+        XCTAssertEqual(metadata?.publicationYears?.edition?.year, 2018)
     }
     func testTitleMatchNeverProvidesPageCountAndRejectsWrongAuthor() async throws {
         let service = client()
         let metadata = try await service.metadata(for: book())
         XCTAssertNotNil(metadata?.description)
         XCTAssertNil(metadata?.pages)
+        XCTAssertEqual(metadata?.publicationYears?.release?.year, 1980)
+        XCTAssertNil(metadata?.publicationYears?.edition)
         var mismatch = book()
         mismatch.author = "Another Author"
         let absent = try await service.metadata(for: mismatch)
@@ -107,6 +111,31 @@ final class HardcoverTests: XCTestCase {
         let metadata = try await client().metadata(for: local)
         XCTAssertNotNil(metadata)
         XCTAssertNil(metadata?.pages)
+        XCTAssertNil(metadata?.publicationYears?.edition)
+    }
+
+    func testPublicationYearRefreshPrefersOriginalYearAndKeepsEmbeddedFallback() async throws {
+        let database = try AppDatabase.inMemory()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let importer = BookImporter(database: database, storage: BookStorage(directory: directory),
+                                    openLibrary: nil, hardcover: client())
+        var local = book()
+        local.embeddedEditionYear = 2020
+        local.didReadEmbeddedEditionYear = true
+        local.isbn = "9780140328721"
+        XCTAssertNil(book().publicationYear)
+        XCTAssertEqual(local.publicationYear?.label, "Edition Year")
+        try await database.insert(local)
+        await importer.updatePublicationYears(id: local.id)
+        let loaded = try await database.book(id: local.id)
+        var saved = try XCTUnwrap(loaded)
+        XCTAssertEqual(saved.publicationYear?.label, "Release Year")
+        XCTAssertEqual(saved.publicationYear?.year, 1980)
+        saved.hardcoverPublicationYears?.release = nil
+        XCTAssertEqual(saved.publicationYear?.year, 2020)
+        saved.embeddedEditionYear = nil
+        XCTAssertEqual(saved.publicationYear?.label, "Edition Year")
+        XCTAssertEqual(saved.publicationYear?.year, 2018)
     }
     func testGenreEvidencePersistsAndManualCorrectionSurvives() async throws {
         let database = try AppDatabase.inMemory()
@@ -289,10 +318,14 @@ private final class HardcoverProtocol: URLProtocol {
             "series": [["name": "Wizard Series", "position": 2.5]], "genres": ["Fantasy"],
             "moods": ["Dark", "Tense"], "contentWarnings": ["Blood"],
             "rating": 4.24, "ratingsCount": 1283]
+        var publicationYears: [String: Any] = ["releaseYear": 1980]
         if let identifier {
+            let editionISBN = title == "Wrong ISBN" ? "080442957X" : identifier
             record["exactEdition"] = ["id": 11, "pages": 320,
-                "isbn": title == "Wrong ISBN" ? "080442957X" : identifier]
+                "isbn": editionISBN]
+            publicationYears["exactEdition"] = ["id": 11, "isbn": editionISBN, "year": 2018]
         }
+        record["publicationYears"] = publicationYears
         let absent = title == "Ambiguous" || identifier == "080442957X" || parameters["author"] == "Another Author"
         let json: [String: Any] = ["metadata": absent ? NSNull() : record]
         let status = title == "Rate Limited" ? 429 : title == "Error" ? 503 : 200

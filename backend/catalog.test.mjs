@@ -30,6 +30,17 @@ test('zero ratings do not produce an average',async()=>{
   const data=await catalog.lookup(input);
   assert.equal(data.rating,null);assert.equal(data.ratingsCount,0);
 });
+test('book and ISBN edition years are independent of each other and of page count',async()=>{
+  const edition = {id:11,isbn_13:'9780140328721',release_year:2018,book:{...book,release_year:1980}};
+  const {catalog,requests}=setup(body=>result(body.variables.isbn ? {editions:[edition]} : {books:[edition.book]}));
+  const data=await catalog.lookup({...input,isbn:edition.isbn_13});
+  assert.equal(data.exactEdition,null);
+  assert.deepEqual(data.publicationYears,{releaseYear:1980,exactEdition:{id:11,isbn:edition.isbn_13,year:2018}});
+  assert.deepEqual((await catalog.lookup(input)).publicationYears,{releaseYear:1980,exactEdition:null});
+  assert.match(requests[0].body.query,/pages release_year book \{[^}]*release_year/);
+  const missing=setup(()=>result({editions:[{...edition,book:{...book,release_year:0}}]}));
+  assert.equal((await missing.catalog.lookup({...input,isbn:edition.isbn_13})).publicationYears.releaseYear,null);
+});
 test('title and author match cannot supply pages; mismatched authors rejected',async()=>{
   const {catalog}=setup(()=>result({books:[{...book,pages:999}]}));
   assert.equal((await catalog.lookup(input)).exactEdition,null);

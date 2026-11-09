@@ -50,6 +50,19 @@ struct Book: Codable, Identifiable, Hashable, Sendable, FetchableRecord, Persist
     /// BCP 47 language tags supplied by the publication, e.g. "en" or "vi".
     var languages: [String] = []
     var isbn: String? = nil
+    var embeddedEditionYear: Int? = nil
+    var didReadEmbeddedEditionYear: Bool = false
+    var hardcoverPublicationYears: HardcoverPublicationYears? = nil
+    var publicationYear: (label: String, year: Int, sourceURL: String?)? {
+        if let release = hardcoverPublicationYears?.release {
+            return ("Release Year", release.year, release.sourceURL)
+        }
+        if let embeddedEditionYear { return ("Edition Year", embeddedEditionYear, nil) }
+        if let edition = hardcoverPublicationYears?.edition {
+            return ("Edition Year", edition.year, edition.sourceURL)
+        }
+        return nil
+    }
     var openLibraryWorkKey: String? = nil
     var openLibraryEditionKey: String? = nil
     /// Each enriched field's catalog record, preserving provenance across lookups.
@@ -80,6 +93,7 @@ struct Book: Codable, Identifiable, Hashable, Sendable, FetchableRecord, Persist
     /// 0…1 through the whole book
     var progression: Double
     var readingStatus: ReadingStatus = .tbr
+    var personalRating: Int? = nil
 
     enum Columns {
         static let title = Column(CodingKeys.title)

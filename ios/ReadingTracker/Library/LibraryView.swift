@@ -7,7 +7,6 @@ struct LibraryView: View {
     @State private var selectedTab: AppTab = .library
     @FocusState private var searchFocused: Bool
     @State private var bookToDelete: Book?
-    @State private var bookToInspect: Book?
     @State private var shelfToDelete: Shelf?
     @State private var shelfNaming: ShelfNaming?
     @State private var shelfName = ""
@@ -16,7 +15,18 @@ struct LibraryView: View {
     @State private var confirmingBulkDelete = false
     // Navigate by ID: a Book value changes as soon as it's opened (progress,
     // last-opened date), which SwiftUI would treat as a different destination.
-    @State private var path: [String] = []
+    @State private var path: [Route] = []
+
+    private enum Route: Hashable {
+        case reader(String)
+        case details(String, fromReader: Bool)
+
+        var bookID: String {
+            switch self {
+            case .reader(let id), .details(let id, _): id
+            }
+        }
+    }
 
     private enum ShelfNaming {
         case create(adding: [Book])
@@ -79,12 +89,7 @@ struct LibraryView: View {
                     }
                 }
             }
-            .navigationDestination(for: String.self) { id in
-                if let book = model.books.first(where: { $0.id == id }) {
-                    ReaderScreen(book: book, environment: model.environment)
-                        .id(id)
-                }
-            }
+            .navigationDestination(for: Route.self, destination: destination)
             .fileImporter(
                 isPresented: $showingImporter,
                 allowedContentTypes: [.epub, .pdf],
@@ -93,11 +98,6 @@ struct LibraryView: View {
                 switch result {
                 case .success(let urls): model.importFiles(urls)
                 case .failure(let error): model.errorMessage = error.localizedDescription
-                }
-            }
-            .sheet(item: $bookToInspect) { book in
-                BookDetailsScreen(book: book, coverURL: model.coverURL(for: book)) {
-                    path.append(book.id)
                 }
             }
             .confirmationDialog(
@@ -148,6 +148,30 @@ struct LibraryView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(model.errorMessage ?? "")
+            }
+        }
+    }
+
+    @ViewBuilder private func destination(_ route: Route) -> some View {
+        if let book = model.books.first(where: { $0.id == route.bookID }) {
+            switch route {
+            case .reader:
+                ReaderScreen(book: book, environment: model.environment) {
+                    path.append(.details(book.id, fromReader: true))
+                }
+                .id(book.id)
+            case .details(_, let fromReader):
+                BookDetailsScreen(book: book, coverURL: model.coverURL(for: book), fromReader: fromReader) {
+                    guard path.last == route else { return }
+                    if fromReader {
+                        path.removeLast()
+                    } else {
+                        path[path.count - 1] = .reader(book.id)
+                    }
+                } onDeleted: {
+                    selectedTab = .library
+                    path.removeAll()
+                }
             }
         }
     }
@@ -459,12 +483,12 @@ struct LibraryView: View {
     }
 
     private func bookLink(_ book: Book) -> some View {
-        NavigationLink(value: book.id) {
+        NavigationLink(value: Route.reader(book.id)) {
             BookCell(book: book, coverURL: model.coverURL(for: book))
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button { bookToInspect = book } label: {
+            Button { showDetails(for: book) } label: {
                 Label("Book Details", systemImage: "info.circle")
             }
             Menu {
@@ -494,7 +518,12 @@ struct LibraryView: View {
                 Label("Delete Book", systemImage: "trash")
             }
         }
-        .accessibilityAction(named: "Book Details") { bookToInspect = book }
+        .accessibilityAction(named: "Book Details") { showDetails(for: book) }
+    }
+
+    private func showDetails(for book: Book) {
+        searchFocused = false
+        path.append(.details(book.id, fromReader: false))
     }
 
     @ViewBuilder private var importStatus: some View {

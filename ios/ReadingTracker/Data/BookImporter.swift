@@ -27,6 +27,7 @@ final class BookImporter {
     private let classifier: BookGenreClassifier?
     private var enrichments: [String: Task<Void, Never>] = [:]
     private var pageTasks: [String: Task<Void, Never>] = [:]
+    private var checkingPublicationYears: Set<String> = []
     private var backfillingHardcoverReadingMetadata = false
 
     static let coverSize = CGSize(width: 600, height: 900)
@@ -92,6 +93,8 @@ final class BookImporter {
                 subjects: pdfMetadata?.subjects ?? metadata.subjects.compactMap { Self.clean($0.name) },
                 languages: pdfMetadata?.languages ?? metadata.languages.compactMap { Self.clean($0) },
                 isbn: OpenLibraryISBN.normalize(metadata.identifier),
+                embeddedEditionYear: format == .epub ? Self.editionYear(from: metadata.published) : pdfMetadata?.editionYear,
+                didReadEmbeddedEditionYear: true,
                 pageCount: initialPages?.count,
                 pageCountSource: initialPages?.source,
                 size: Self.fileSize(of: destination),
@@ -151,6 +154,43 @@ final class BookImporter {
     }
 
     func waitForMetadata(bookID: String) async { await enrichments[bookID]?.value }
+
+    /// Revisit an existing book when its details are opened, without rescanning the library.
+    func updatePublicationYears(id: String) async {
+        guard checkingPublicationYears.insert(id).inserted else { return }
+        defer { checkingPublicationYears.remove(id) }
+        await waitForMetadata(bookID: id)
+        guard !Task.isCancelled, let book = try? await database.book(id: id),
+              book.hardcoverPublicationYears?.release == nil else { return }
+
+        if !book.didReadEmbeddedEditionYear {
+            do {
+                let url = storage.url(for: book.fileName)
+                switch book.format {
+                case .epub:
+                    let metadata = try await readium.openPublication(at: url).metadata
+                    try Task.checkCancellation()
+                    try await database.saveEmbeddedPublicationYear(id: id, year: Self.editionYear(from: metadata.published),
+                        isbn: OpenLibraryISBN.normalize(metadata.identifier))
+                case .pdf:
+                    if FileManager.default.isReadableFile(atPath: url.path) {
+                        try await database.saveEmbeddedPublicationYear(id: id, year: PDFBookMetadata(url: url).editionYear)
+                    }
+                }
+            } catch { /* The catalog may still know the year if the file could not be read. */ }
+        }
+
+        guard let hardcover, !Task.isCancelled, let latest = try? await database.book(id: id),
+              latest.hardcoverPublicationYears == nil else { return }
+        do {
+            let metadata = try await hardcover.metadata(for: latest)
+            try Task.checkCancellation()
+            // A matched record from an older backend has no year fields. Retry after it is updated.
+            if let years = metadata == nil ? HardcoverPublicationYears() : metadata?.publicationYears {
+                try await database.saveHardcoverPublicationYears(id: id, isbn: latest.isbn, years: years)
+            }
+        } catch { /* Retry on a later visit after a network failure. */ }
+    }
 
     func backfillHardcoverReadingMetadata() async {
         guard let hardcover, !backfillingHardcoverReadingMetadata else { return }
@@ -249,12 +289,20 @@ final class BookImporter {
             if let metadata {
                 try await database.enrichHardcover(id: id, metadata: metadata)
             } else {
-                try await database.saveHardcoverReadingMetadata(id: id, metadata: nil)
+                try await database.saveHardcoverReadingMetadata(id: id, metadata: nil, recordNoMatch: true)
             }
         } catch { /* Authentication, offline and catalog failures leave the local book usable. */ }
     }
 
     // MARK: Helpers
+
+    private static func editionYear(from date: Date?) -> Int? {
+        guard let date else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        let year = calendar.component(.year, from: date)
+        return calendar.component(.era, from: date) == 1 && (1...9999).contains(year) ? year : nil
+    }
 
     /// Works out the format from the file's first bytes, falling back to its extension.
     nonisolated static func detectFormat(of url: URL) -> BookFormat? {

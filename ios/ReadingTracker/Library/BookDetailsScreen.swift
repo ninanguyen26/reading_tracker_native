@@ -3,21 +3,34 @@ import SwiftUI
 struct BookDetailsScreen: View {
     @State private var book: Book
     let coverURL: URL?
-    var onRead: (() -> Void)? = nil
-    @Environment(\.dismiss) private var dismiss
+    let fromReader: Bool
+    let onRead: () -> Void
+    let onDeleted: () -> Void
     @EnvironmentObject private var environment: AppEnvironment
     @State private var showingLookup = false
     @State private var showingGenres = false
+    @State private var showingShelves = false
+    @State private var confirmingDelete = false
+    @State private var deletingBook = false
+    @State private var deleteError: String?
     @State private var expandedDescription = false
     @State private var loadingPages = true
     @State private var showingContentWarnings = false
     @State private var readingStatusError: String?
+    @State private var ratingError = false
+    @State private var section: Section = .about
     private var description: String? { BookDetailsText.description(book.description) }
 
-    init(book: Book, coverURL: URL?, onRead: (() -> Void)? = nil) {
+    private enum Section {
+        case about, myReading
+    }
+
+    init(book: Book, coverURL: URL?, fromReader: Bool, onRead: @escaping () -> Void, onDeleted: @escaping () -> Void) {
         _book = State(initialValue: book)
         self.coverURL = coverURL
+        self.fromReader = fromReader
         self.onRead = onRead
+        self.onDeleted = onDeleted
     }
     private var series: [BookSeries] { book.series.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } }
     private var languages: [String] { BookDetailsText.nonempty(book.languages) }
@@ -35,6 +48,8 @@ struct BookDetailsScreen: View {
         }
         if book.pageCountSource == .hardcover, let url = book.pageCountEditionKey,
            Self.validHardcoverURL(url) { sources["pages"] = url }
+        if let publicationYear = book.publicationYear, let url = publicationYear.sourceURL,
+           Self.validHardcoverURL(url) { sources[publicationYear.label] = url }
         return sources
     }
     private static func validHardcoverURL(_ value: String) -> Bool {
@@ -43,84 +58,152 @@ struct BookDetailsScreen: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    bookHeader
-                    if let onRead {
-                        Button {
-                            dismiss()
-                            onRead()
-                        } label: {
-                            Label(book.progression > 0 ? "Continue Reading" : "Read Book", systemImage: "book")
-                                .frame(maxWidth: .infinity, minHeight: 24)
-                        }
-                        .buttonStyle(AppPrimaryButtonStyle())
-                    }
-                    readingStatusControl
-                    if let description { synopsisCard(description) }
-                    informationCard
-                    if let moods = book.hardcoverMoods, !moods.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            heading("Moods")
-                            readingTagChips(moods, lowercase: true)
-                        }
-                        .detailsCard()
-                    }
-                    if let warnings = book.hardcoverContentWarnings, !warnings.isEmpty {
-                        contentWarningsCard(warnings)
-                    }
-                    Button { showingLookup = true } label: {
-                        Label("Find Missing Details", systemImage: "magnifyingglass")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(DetailsActionStyle())
-                    .accessibilityIdentifier("find-missing-details")
-                    if !metadataSources.isEmpty { sourcesCard }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                bookHeader
+                readingStatusControl
+                progressRow
+                Picker("Book Details Section", selection: $section) {
+                    Text("About").tag(Section.about)
+                    Text("My Reading").tag(Section.myReading)
                 }
-                .frame(maxWidth: 600)
-                .padding(20)
-                .frame(maxWidth: .infinity)
+                .pickerStyle(.segmented)
+
+                switch section {
+                case .about:
+                    about
+                case .myReading:
+                    BookJournal(bookID: book.id).detailsCard()
+                }
             }
-            .background(AppPalette.background)
-            .foregroundStyle(AppPalette.text)
-            .toolbarBackground(AppPalette.background, for: .navigationBar)
-            .navigationTitle("Book Details")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            .frame(maxWidth: 600)
+            .padding(20)
+            .frame(maxWidth: .infinity)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) { readFooter }
+        .background(AppPalette.background)
+        .foregroundStyle(AppPalette.text)
+        .toolbarBackground(AppPalette.background, for: .navigationBar)
+        .navigationTitle("Book Details")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { bookActions }
+        }
+        .disabled(deletingBook)
+        .sheet(isPresented: $showingLookup) { OpenLibraryLookupScreen(book: book) { book = $0 } }
+        .sheet(isPresented: $showingGenres) { BookGenreEditor(book: book) { book = $0 } }
+        .sheet(isPresented: $showingShelves) { ManageBookShelvesSheet(bookID: book.id) }
+        .alert("Delete “\(book.title)”?", isPresented: $confirmingDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete Book", role: .destructive, action: deleteBook)
+        } message: {
+            Text("This removes the book and its reading progress, bookmarks, highlights, rating, and journal entries from this device.")
+        }
+        .alert("Couldn’t delete book", isPresented: Binding(
+            get: { deleteError != nil }, set: { if !$0 { deleteError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteError ?? "")
+        }
+        .alert("Couldn’t update reading status", isPresented: Binding(
+            get: { readingStatusError != nil },
+            set: { if !$0 { readingStatusError = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(readingStatusError ?? "")
+        }
+        .task {
+            do {
+                for try await books in environment.database.observeBooks() {
+                    if let saved = books.first(where: { $0.id == book.id }) { book = saved }
+                }
+            } catch { /* Keep already loaded details if observation ends. */ }
+        }
+        .task(id: book.id + "|" + (book.openLibraryEditionKey ?? "")) {
+            await environment.importer.updatePageCount(for: book)
+            loadingPages = false
+        }
+        .task(id: book.id) {
+            await environment.importer.updatePublicationYears(id: book.id)
+        }
+        .task(id: book.id) {
+            guard book.description != nil, description == nil,
+                  let key = book.openLibraryWorkKey,
+                  OpenLibraryClient.validKey(key, kind: "works", suffix: "W"),
+                  let work = try? await OpenLibraryClient.shared.work(key) else { return }
+            _ = try? await environment.database.enrichBook(
+                id: book.id, metadata: OpenLibraryMetadata(work: work, edition: nil), fields: [.description]
+            )
+        }
+    }
+
+    private var bookActions: some View {
+        Menu {
+            Button { showingShelves = true } label: {
+                Label("Manage Shelves", systemImage: "books.vertical")
             }
-            .sheet(isPresented: $showingLookup) { OpenLibraryLookupScreen(book: book) { book = $0 } }
-            .sheet(isPresented: $showingGenres) { BookGenreEditor(book: book) { book = $0 } }
-            .alert("Couldn’t update reading status", isPresented: Binding(
-                get: { readingStatusError != nil },
-                set: { if !$0 { readingStatusError = nil } }
-            )) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(readingStatusError ?? "")
+            Button(role: .destructive) { confirmingDelete = true } label: {
+                Label("Delete Book", systemImage: "trash")
             }
-            .task {
-                do {
-                    for try await books in environment.database.observeBooks() {
-                        if let saved = books.first(where: { $0.id == book.id }) { book = saved }
-                    }
-                } catch { /* Keep already loaded details if observation ends. */ }
-            }
-            .task(id: book.id + "|" + (book.openLibraryEditionKey ?? "")) {
-                await environment.importer.updatePageCount(for: book)
-                loadingPages = false
-            }
-            .task(id: book.id) {
-                guard book.description != nil, description == nil,
-                      let key = book.openLibraryWorkKey,
-                      OpenLibraryClient.validKey(key, kind: "works", suffix: "W"),
-                      let work = try? await OpenLibraryClient.shared.work(key) else { return }
-                _ = try? await environment.database.enrichBook(
-                    id: book.id, metadata: OpenLibraryMetadata(work: work, edition: nil), fields: [.description]
-                )
+        } label: {
+            Label("Book Actions", systemImage: "ellipsis")
+        }
+        .disabled(deletingBook)
+    }
+
+    private func deleteBook() {
+        guard !deletingBook else { return }
+        deletingBook = true
+        let book = book
+        Task {
+            do {
+                try await environment.importer.delete(book)
+                onDeleted()
+            } catch {
+                deletingBook = false
+                deleteError = error.localizedDescription
             }
         }
+    }
+
+    private var readFooter: some View {
+        Button(action: onRead) {
+            Label(fromReader || book.progression > 0 ? "Continue Reading" : "Read Book", systemImage: "book")
+                .frame(maxWidth: .infinity, minHeight: 24)
+        }
+        .buttonStyle(AppPrimaryButtonStyle())
+        .frame(maxWidth: 600)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(AppPalette.surface, ignoresSafeAreaEdges: .bottom)
+        .overlay(alignment: .top) { Divider().overlay(AppPalette.border) }
+    }
+
+    @ViewBuilder private var about: some View {
+        if let description { synopsisCard(description) }
+        genresCard
+        if let moods = book.hardcoverMoods, !moods.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                heading("Moods")
+                readingTagChips(moods, lowercase: true)
+            }
+            .detailsCard()
+        }
+        if let warnings = book.hardcoverContentWarnings, !warnings.isEmpty {
+            contentWarningsCard(warnings)
+        }
+        metadataCard
+        Button { showingLookup = true } label: {
+            Label("Find Missing Details", systemImage: "magnifyingglass")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(DetailsActionStyle())
+        .accessibilityIdentifier("find-missing-details")
+        if !metadataSources.isEmpty { sourcesCard }
     }
 
     private var readingStatusControl: some View {
@@ -148,6 +231,21 @@ struct BookDetailsScreen: View {
         }
     }
 
+    private var progressRow: some View {
+        HStack(spacing: 10) {
+            Text("Progress")
+                .font(.caption.weight(.semibold))
+            ProgressView(value: book.progression)
+                .tint(AppPalette.accent)
+            Text(book.progression.formatted(.percent.precision(.fractionLength(0))))
+                .font(.caption.monospacedDigit())
+        }
+        .foregroundStyle(AppPalette.secondaryText)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Reading progress")
+        .accessibilityValue(book.progression.formatted(.percent.precision(.fractionLength(0))))
+    }
+
     private var bookHeader: some View {
         HStack(alignment: .top, spacing: 18) {
             BookCoverView(book: book, coverURL: coverURL)
@@ -163,23 +261,62 @@ struct BookDetailsScreen: View {
                         .font(.subheadline)
                         .foregroundStyle(AppPalette.secondaryText)
                 }
-                if let rating = book.hardcoverRating, let count = book.hardcoverRatingsCount, count > 0 {
-                    let average = rating.formatted(.number.precision(.fractionLength(1)))
-                    let countLabel = "\(count.formatted()) \(count == 1 ? "rating" : "ratings")"
-                    Text("★ \(average)/5 · \(countLabel)")
-                        .font(.caption)
-                        .foregroundStyle(AppPalette.secondaryText)
-                        .accessibilityLabel("Hardcover rating, \(average) out of 5, \(countLabel)")
-                        .accessibilityIdentifier("hardcover-rating")
-                }
-                Text(book.format.label)
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(AppPalette.secondarySurface, in: Capsule())
+                personalRatingControl
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 4)
+    }
+
+    private var personalRatingControl: some View {
+        Menu {
+            ForEach(1...5, id: \.self) { stars in
+                let label = stars == 1 ? "1 star" : "\(stars) stars"
+                Button { setPersonalRating(stars) } label: {
+                    if stars == book.personalRating {
+                        Label(label, systemImage: "checkmark")
+                    } else {
+                        Text(label)
+                    }
+                }
+            }
+            if book.personalRating != nil {
+                Button("Clear Rating") { setPersonalRating(nil) }
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Your Rating")
+                    .font(.caption)
+                    .foregroundStyle(AppPalette.secondaryText)
+                HStack(spacing: 4) {
+                    ForEach(1...5, id: \.self) { star in
+                        Image(systemName: "star.fill")
+                            .foregroundStyle(star <= (book.personalRating ?? 0) ? AppPalette.accent : Color.gray)
+                    }
+                }
+                .font(.subheadline)
+            }
+            .frame(minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Your Rating")
+        .accessibilityValue(book.personalRating.map { "\($0) out of 5" } ?? "Not rated")
+        .accessibilityIdentifier("personal-rating")
+        .alert("Couldn’t save your rating", isPresented: $ratingError) {
+            Button("OK", role: .cancel) {}
+        }
+    }
+
+    private func setPersonalRating(_ rating: Int?) {
+        let id = book.id
+        Task {
+            do {
+                try await environment.database.setPersonalRating(rating, for: id)
+            } catch {
+                ratingError = true
+            }
+        }
     }
 
     private func synopsisCard(_ description: String) -> some View {
@@ -220,45 +357,58 @@ struct BookDetailsScreen: View {
         return text
     }
 
-    private var informationCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    heading("Genres")
-                    Spacer(minLength: 0)
-                    Button { showingGenres = true } label: {
-                        Label("Edit", systemImage: "pencil")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(AppPalette.accent)
-                            .padding(.top, 12)
-                            .frame(minWidth: 44, minHeight: 44, alignment: .topTrailing)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Edit Genres")
-                    .padding(.top, -12)
+    private var genresCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                heading("Genres")
+                Spacer(minLength: 0)
+                Button { showingGenres = true } label: {
+                    Label("Edit", systemImage: "pencil")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppPalette.accent)
+                        .padding(.top, 12)
+                        .frame(minWidth: 44, minHeight: 44, alignment: .topTrailing)
+                        .contentShape(Rectangle())
                 }
-                DetailsFlowLayout(spacing: 8) {
-                    if book.genres.isEmpty {
-                        detailChip("Unclassified")
-                    }
-                    ForEach(book.genres) { detailChip($0.displayName) }
-                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Edit Genres")
+                .padding(.top, -12)
             }
-            Divider().overlay(AppPalette.border)
+            DetailsFlowLayout(spacing: 8) {
+                if book.genres.isEmpty {
+                    detailChip("Unclassified")
+                }
+                ForEach(book.genres) { detailChip($0.displayName) }
+            }
+        }
+        .detailsCard()
+    }
+
+    private var metadataCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            heading("Metadata")
+            metadataRow("Format", value: book.format.label)
+            if let publicationYear = book.publicationYear {
+                metadataRow(publicationYear.label, value: String(publicationYear.year))
+            }
             metadataRow("Pages", value: pageCountLabel)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("details-pages")
-            if !series.isEmpty || !languages.isEmpty {
-                if !series.isEmpty {
-                    metadataRow("Series", value: series.map(BookDetailsText.series).joined(separator: "\n"))
-                }
-                if !languages.isEmpty {
-                    metadataRow(languages.count == 1 ? "Language" : "Languages",
-                                value: languages.map { Locale.current.localizedString(forIdentifier: $0) ?? $0 }.joined(separator: ", "))
-                }
+            if !series.isEmpty {
+                metadataRow("Series", value: series.map(BookDetailsText.series).joined(separator: "\n"))
             }
-
+            if !languages.isEmpty {
+                metadataRow(languages.count == 1 ? "Language" : "Languages",
+                            value: languages.map { Locale.current.localizedString(forIdentifier: $0) ?? $0 }.joined(separator: ", "))
+            }
+            if let rating = book.hardcoverRating, let count = book.hardcoverRatingsCount, count > 0 {
+                let average = rating.formatted(.number.precision(.fractionLength(1)))
+                let countLabel = "\(count.formatted()) \(count == 1 ? "rating" : "ratings")"
+                metadataRow("Hardcover Rating", value: Text("\(average) \(Image(systemName: "star.fill"))/5 · \(countLabel)"))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Hardcover rating, \(average) out of 5, \(countLabel)")
+                    .accessibilityIdentifier("hardcover-rating")
+            }
         }
         .detailsCard()
     }
@@ -339,10 +489,14 @@ struct BookDetailsScreen: View {
     }
 
     private func metadataRow(_ title: String, value: String) -> some View {
+        metadataRow(title, value: Text(value))
+    }
+
+    private func metadataRow(_ title: String, value: Text) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(title).font(.caption).foregroundStyle(AppPalette.secondaryText)
-                .frame(width: 72, alignment: .leading)
-            Text(value).font(.subheadline).textSelection(.enabled)
+                .frame(width: 120, alignment: .leading)
+            value.font(.subheadline).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -357,7 +511,7 @@ struct BookDetailsScreen: View {
     }
 }
 
-private struct DetailsActionStyle: ButtonStyle {
+struct DetailsActionStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.subheadline.weight(.semibold))

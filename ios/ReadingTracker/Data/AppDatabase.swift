@@ -143,6 +143,24 @@ final class AppDatabase: Sendable {
                 t.add(column: "readingStatus", .text).notNull().defaults(to: ReadingStatus.tbr.rawValue)
             }
         }
+        migrator.registerMigration("v14-publication-years") { db in
+            try db.alter(table: "book") { t in
+                t.add(column: "embeddedEditionYear", .integer)
+                t.add(column: "didReadEmbeddedEditionYear", .boolean).notNull().defaults(to: false)
+                t.add(column: "hardcoverPublicationYears", .text)
+            }
+        }
+        migrator.registerMigration("v15-personal-reading") { db in
+            try db.alter(table: "book") { t in
+                t.add(column: "personalRating", .integer).check { (1...5).contains($0) }
+            }
+            try db.create(table: JournalEntry.databaseTableName) { t in
+                t.primaryKey("id", .text)
+                t.column("bookId", .text).notNull().indexed().references("book", onDelete: .cascade)
+                t.column("text", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+            }
+        }
         return migrator
     }
 
@@ -158,6 +176,21 @@ final class AppDatabase: Sendable {
     }
 
     // MARK: Books
+
+    func saveEmbeddedPublicationYear(id: String, year: Int?, isbn: String? = nil) async throws {
+        try await writer.write { db in
+            guard var book = try Book.fetchOne(db, key: id), !book.didReadEmbeddedEditionYear else { return }
+            book.embeddedEditionYear = year
+            book.didReadEmbeddedEditionYear = true
+            if book.isbn == nil, let isbn {
+                book.isbn = isbn
+                if book.hardcoverPublicationYears?.release == nil {
+                    book.hardcoverPublicationYears = nil
+                }
+            }
+            try book.update(db)
+        }
+    }
 
     func insert(_ book: Book) async throws {
         try await writer.write { try book.insert($0) }
@@ -195,6 +228,12 @@ final class AppDatabase: Sendable {
             for id in bookIDs {
                 try db.execute(sql: "UPDATE book SET readingStatus = ? WHERE id = ?", arguments: [status, id])
             }
+        }
+    }
+
+    func setPersonalRating(_ rating: Int?, for bookID: String) async throws {
+        try await writer.write { db in
+            try db.execute(sql: "UPDATE book SET personalRating = ? WHERE id = ?", arguments: [rating, bookID])
         }
     }
 
@@ -263,17 +302,22 @@ final class AppDatabase: Sendable {
 
     // MARK: Shelves
 
-    /// Creates a shelf, or returns the existing one with the same name (ignoring case).
+    /// Creates or reuses a shelf by name and adds the supplied books in the same transaction.
     @discardableResult
-    func createShelf(named name: String) async throws -> Shelf? {
+    func createShelf(named name: String, adding bookIDs: [String] = []) async throws -> Shelf? {
         let clean = Shelf.cleanName(name)
         guard !clean.isEmpty else { return nil }
         return try await writer.write { db in
+            let shelf: Shelf
             if let existing = try Shelf.fetchAll(db).first(where: { $0.name.caseInsensitiveCompare(clean) == .orderedSame }) {
-                return existing
+                shelf = existing
+            } else {
+                shelf = Shelf(id: UUID().uuidString, name: clean, createdAt: Date())
+                try shelf.insert(db)
             }
-            let shelf = Shelf(id: UUID().uuidString, name: clean, createdAt: Date())
-            try shelf.insert(db)
+            for bookID in bookIDs {
+                try BookShelf(bookId: bookID, shelfId: shelf.id).insert(db, onConflict: .ignore)
+            }
             return shelf
         }
     }
