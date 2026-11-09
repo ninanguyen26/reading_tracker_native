@@ -297,21 +297,73 @@ final class LibraryTests: XCTestCase {
         XCTAssertNil(legacy?.personalThoughts)
 
         let thoughts = "First impression.\nA second thought."
-        try await migrated.savePersonalReview(quarterStars: 15, thoughts: thoughts, for: "legacy")
+        try await migrated.savePersonalReview(quarterStars: 15, moods: [], thoughts: thoughts, for: "legacy")
         let reviewed = try await migrated.book(id: "legacy")
         XCTAssertEqual(reviewed?.personalRatingQuarterStars, 15)
         XCTAssertEqual(reviewed?.personalThoughts, thoughts)
 
-        try await migrated.savePersonalReview(quarterStars: nil, thoughts: thoughts, for: "legacy")
+        try await migrated.savePersonalReview(quarterStars: nil, moods: [], thoughts: thoughts, for: "legacy")
         let cleared = try await migrated.book(id: "legacy")
         XCTAssertNil(cleared?.personalRatingQuarterStars)
         XCTAssertEqual(cleared?.personalThoughts, thoughts)
         XCTAssertEqual(cleared?.progression, 0.42)
 
-        try await migrated.savePersonalReview(quarterStars: nil, thoughts: "Updated thoughts", for: "legacy")
+        try await migrated.savePersonalReview(quarterStars: nil, moods: [], thoughts: "Updated thoughts", for: "legacy")
         let thoughtsOnly = try await migrated.book(id: "legacy")
         XCTAssertNil(thoughtsOnly?.personalRatingQuarterStars)
         XCTAssertEqual(thoughtsOnly?.personalThoughts, "Updated thoughts")
+    }
+
+    func testOverallMoodsCanBeSavedAloneAndCleared() async throws {
+        let queue = try DatabaseQueue()
+        try AppDatabase.migrator.migrate(queue, upTo: "v16-quarter-star-ratings-and-thoughts")
+        try await queue.write { db in
+            try db.execute(sql: """
+                INSERT INTO book (id, title, author, format, fileName, size, addedAt,
+                    hardcoverMoods, personalRatingQuarterStars, personalThoughts)
+                VALUES ('reviewed', 'Existing Book', 'Author', 'epub', 'reviewed.epub', 100, '2026-01-01 00:00:00',
+                    '["Tense"]', 15, 'Worth revisiting.')
+                """)
+        }
+        let migrated = try AppDatabase(queue)
+        let existing = try await migrated.book(id: "reviewed")
+        XCTAssertNil(existing?.personalMoods)
+        XCTAssertEqual(existing?.personalRatingQuarterStars, 15)
+        XCTAssertEqual(existing?.personalThoughts, "Worth revisiting.")
+
+        try await migrated.savePersonalReview(quarterStars: nil, moods: [.reflective, .hopeful], thoughts: "", for: "reviewed")
+        let moodsOnly = try await migrated.book(id: "reviewed")
+        XCTAssertEqual(moodsOnly?.personalMoods, [.hopeful, .reflective])
+        XCTAssertEqual(moodsOnly?.hardcoverMoods, ["Tense"])
+        XCTAssertNil(moodsOnly?.personalRatingQuarterStars)
+        XCTAssertNil(moodsOnly?.personalThoughts)
+
+        try await migrated.savePersonalReview(quarterStars: 15, moods: [], thoughts: "Worth revisiting.", for: "reviewed")
+        let cleared = try await migrated.book(id: "reviewed")
+        XCTAssertNil(cleared?.personalMoods)
+        XCTAssertEqual(cleared?.personalRatingQuarterStars, 15)
+        XCTAssertEqual(cleared?.personalThoughts, "Worth revisiting.")
+    }
+
+    func testFinishingOneBookReturnsItsSavedReviewOnlyOnStatusChange() async throws {
+        let book = try await importer.importBook(from: fixture("sample", "pdf"))
+        try await database.savePersonalReview(quarterStars: 15, moods: [], thoughts: "Worth revisiting.", for: book.id)
+
+        let finished = try await database.setReadingStatus(.finished, for: [book.id])
+        XCTAssertEqual(finished?.readingStatus, .finished)
+        XCTAssertEqual(finished?.personalRatingQuarterStars, 15)
+        XCTAssertEqual(finished?.personalThoughts, "Worth revisiting.")
+
+        let alreadyFinished = try await database.setReadingStatus(.finished, for: [book.id])
+        XCTAssertNil(alreadyFinished)
+
+        let second = try await importer.importBook(from: fixture("sample", "epub"))
+        try await database.setReadingStatus(.reading, for: [book.id])
+        let bulkFinish = try await database.setReadingStatus(.finished, for: [book.id, second.id])
+        XCTAssertNil(bulkFinish)
+        let saved = try await database.allBooks()
+        XCTAssertEqual(saved.count, 2)
+        XCTAssertTrue(saved.allSatisfy { $0.readingStatus == .finished })
     }
 
     func testStartingToReadOnlyPromotesTBR() async throws {

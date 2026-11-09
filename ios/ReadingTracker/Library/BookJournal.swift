@@ -9,16 +9,16 @@ struct BookJournal: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text("Journal")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(AppPalette.secondaryText)
                     .accessibilityAddTraits(.isHeader)
-                Spacer()
+                Spacer(minLength: 0)
                 Button { showingAddEntry = true } label: {
                     Label("Add Entry", systemImage: "plus")
                 }
-                .buttonStyle(DetailsActionStyle())
+                .buttonStyle(DetailsHeaderActionStyle())
             }
 
             if loadFailed {

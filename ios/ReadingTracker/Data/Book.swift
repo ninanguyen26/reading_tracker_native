@@ -24,6 +24,11 @@ enum ReadingStatus: String, Codable, CaseIterable, Identifiable, DatabaseValueCo
     }
 }
 
+enum BookMood: String, Codable, CaseIterable, Sendable {
+    case adventurous, challenging, dark, emotional, funny, hopeful, informative, inspiring
+    case lighthearted, mysterious, reflective, relaxing, sad, tense
+}
+
 /// One embedded series membership, including fractional positions such as 2.5.
 struct BookSeries: Codable, Hashable, Sendable {
     var name: String
@@ -96,6 +101,7 @@ struct Book: Codable, Identifiable, Hashable, Sendable, FetchableRecord, Persist
     /// 1…20 quarter stars, or nil when unrated.
     var personalRatingQuarterStars: Int? = nil
     var personalThoughts: String? = nil
+    var personalMoods: [BookMood]? = nil
 
     enum Columns {
         static let title = Column(CodingKeys.title)

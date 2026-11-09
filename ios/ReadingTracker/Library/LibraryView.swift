@@ -7,6 +7,8 @@ struct LibraryView: View {
     @State private var selectedTab: AppTab = .library
     @FocusState private var searchFocused: Bool
     @State private var bookToDelete: Book?
+    @State private var finishedBook: Book?
+    @State private var bookToReview: Book?
     @State private var shelfToDelete: Shelf?
     @State private var shelfNaming: ShelfNaming?
     @State private var shelfName = ""
@@ -149,6 +151,7 @@ struct LibraryView: View {
             } message: {
                 Text(model.errorMessage ?? "")
             }
+            .personalReview(finishedBook: $finishedBook, bookToReview: $bookToReview)
         }
     }
 
@@ -436,7 +439,7 @@ struct LibraryView: View {
         return HStack(spacing: 0) {
             Menu {
                 ReadingStatusOptions { status in
-                    model.setReadingStatus(status, for: books)
+                    model.setReadingStatus(status, for: books) { finishedBook = $0 }
                     endSelecting()
                 }
             } label: {
@@ -496,7 +499,7 @@ struct LibraryView: View {
             }
             Menu {
                 ReadingStatusOptions(current: book.readingStatus) { status in
-                    model.setReadingStatus(status, for: [book])
+                    model.setReadingStatus(status, for: [book]) { finishedBook = $0 }
                 }
             } label: {
                 Label("Change Status", systemImage: "checklist")

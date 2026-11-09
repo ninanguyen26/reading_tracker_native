@@ -105,10 +105,12 @@ final class LibraryModel: ObservableObject {
         runShelfChange { try await $0.setBooks(ids: books.map(\.id), onShelf: shelf.id, false) }
     }
 
-    func setReadingStatus(_ status: ReadingStatus, for books: [Book]) {
+    func setReadingStatus(_ status: ReadingStatus, for books: [Book], onFinished: @escaping (Book) -> Void) {
         Task {
             do {
-                try await environment.database.setReadingStatus(status, for: books.map(\.id))
+                if let saved = try await environment.database.setReadingStatus(status, for: books.map(\.id)) {
+                    onFinished(saved)
+                }
             } catch {
                 errorMessage = "Reading status couldn’t be updated. \(error.localizedDescription)"
             }

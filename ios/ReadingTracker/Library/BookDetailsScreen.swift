@@ -19,7 +19,8 @@ struct BookDetailsScreen: View {
     @State private var loadingPages = true
     @State private var showingContentWarnings = false
     @State private var readingStatusError: String?
-    @State private var showingRating = false
+    @State private var finishedBook: Book?
+    @State private var bookToReview: Book?
     @State private var section: Section = .about
     private var description: String? { BookDetailsText.description(book.description) }
 
@@ -73,6 +74,7 @@ struct BookDetailsScreen: View {
                     about
                 case .myReading:
                     BookJournal(bookID: book.id).detailsCard()
+                    overallMoodsCard
                 }
             }
             .frame(maxWidth: 600)
@@ -93,7 +95,7 @@ struct BookDetailsScreen: View {
         .sheet(isPresented: $showingLookup) { OpenLibraryLookupScreen(book: book) { book = $0 } }
         .sheet(isPresented: $showingGenres) { BookGenreEditor(book: book) { book = $0 } }
         .sheet(isPresented: $showingShelves) { ManageBookShelvesSheet(bookID: book.id) }
-        .sheet(isPresented: $showingRating) { PersonalRatingEditor(book: book) }
+        .personalReview(finishedBook: $finishedBook, bookToReview: $bookToReview)
         .alert("Delete “\(book.title)”?", isPresented: $confirmingDelete) {
             Button("Cancel", role: .cancel) {}
             Button("Delete Book", role: .destructive, action: deleteBook)
@@ -251,7 +253,9 @@ struct BookDetailsScreen: View {
                 let id = book.id
                 Task {
                     do {
-                        try await environment.database.setReadingStatus(status, for: [id])
+                        if let saved = try await environment.database.setReadingStatus(status, for: [id]) {
+                            finishedBook = saved
+                        }
                     } catch {
                         readingStatusError = error.localizedDescription
                     }
@@ -305,7 +309,7 @@ struct BookDetailsScreen: View {
     }
 
     private var personalRatingControl: some View {
-        Button { showingRating = true } label: {
+        Button { bookToReview = book } label: {
             PersonalRatingStars(quarterStars: book.personalRatingQuarterStars ?? 0)
                 .font(.subheadline)
                 .frame(minHeight: 44, alignment: .leading)
@@ -315,6 +319,28 @@ struct BookDetailsScreen: View {
         .accessibilityLabel("Your Rating")
         .accessibilityValue(book.personalRatingQuarterStars.map { "\(personalRatingNumber($0)) out of 5" } ?? "Not rated")
         .accessibilityIdentifier("personal-rating")
+    }
+
+    private var overallMoodsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                heading("Overall Moods")
+                Spacer(minLength: 0)
+                Button { bookToReview = book } label: {
+                    Label("Edit", systemImage: "pencil")
+                }
+                .buttonStyle(DetailsHeaderActionStyle())
+                .accessibilityLabel("Edit Overall Moods")
+            }
+            if let moods = book.personalMoods, !moods.isEmpty {
+                readingTagChips(moods.map(\.rawValue))
+            } else {
+                Text("No moods selected.")
+                    .font(.subheadline)
+                    .foregroundStyle(AppPalette.secondaryText)
+            }
+        }
+        .detailsCard()
     }
 
     private func synopsisCard(_ description: String) -> some View {
@@ -362,15 +388,9 @@ struct BookDetailsScreen: View {
                 Spacer(minLength: 0)
                 Button { showingGenres = true } label: {
                     Label("Edit", systemImage: "pencil")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppPalette.accent)
-                        .padding(.top, 12)
-                        .frame(minWidth: 44, minHeight: 44, alignment: .topTrailing)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(DetailsHeaderActionStyle())
                 .accessibilityLabel("Edit Genres")
-                .padding(.top, -12)
             }
             DetailsFlowLayout(spacing: 8) {
                 if book.genres.isEmpty {
@@ -480,12 +500,34 @@ struct BookDetailsScreen: View {
     }
 }
 
+extension View {
+    func personalReview(finishedBook: Binding<Book?>, bookToReview: Binding<Book?>) -> some View {
+        alert(
+            "Book Finished",
+            isPresented: Binding(
+                get: { finishedBook.wrappedValue != nil },
+                set: { if !$0 { finishedBook.wrappedValue = nil } }
+            ),
+            presenting: finishedBook.wrappedValue
+        ) { book in
+            let hasReview = book.personalRatingQuarterStars != nil ||
+                book.personalThoughts?.isEmpty == false || book.personalMoods?.isEmpty == false
+            Button(hasReview ? "Edit Review" : "Write a Review") { bookToReview.wrappedValue = book }
+            Button("Not Now", role: .cancel) {}
+        } message: { book in
+            Text("You finished “\(book.title)”.")
+        }
+        .sheet(item: bookToReview) { PersonalRatingEditor(book: $0) }
+    }
+}
+
 private struct PersonalRatingEditor: View {
     let book: Book
     @EnvironmentObject private var environment: AppEnvironment
     @Environment(\.dismiss) private var dismiss
     @Environment(\.layoutDirection) private var layoutDirection
     @State private var quarterStars: Int
+    @State private var moods: Set<BookMood>
     @State private var thoughts: String
     @State private var saving = false
     @State private var saveFailed = false
@@ -493,46 +535,32 @@ private struct PersonalRatingEditor: View {
     init(book: Book) {
         self.book = book
         _quarterStars = State(initialValue: book.personalRatingQuarterStars ?? 0)
+        _moods = State(initialValue: Set(book.personalMoods ?? []))
         _thoughts = State(initialValue: book.personalThoughts ?? "")
     }
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(spacing: 2) {
-                    ratingTrack
-                    HStack(spacing: 6) {
-                        adjustment("minus", label: "Decrease rating by a quarter star", step: -1)
-                        Text(quarterStars == 0 ? "Not rated" : "\(personalRatingNumber(quarterStars)) / 5")
-                            .font(.subheadline.monospacedDigit().weight(.semibold))
-                            .frame(minWidth: 76)
-                        adjustment("plus", label: "Increase rating by a quarter star", step: 1)
-                        Button("Clear") { quarterStars = 0 }
-                            .font(.subheadline)
-                            .foregroundStyle(quarterStars == 0 ? AppPalette.secondaryText : AppPalette.accent)
-                            .frame(minWidth: 44, minHeight: 44)
-                            .contentShape(Rectangle())
-                            .disabled(quarterStars == 0)
-                            .accessibilityLabel("Clear Rating")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    ratingControls
+                    moodPicker
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Thoughts")
+                            .font(.headline)
+                            .accessibilityAddTraits(.isHeader)
+                        TextEditor(text: $thoughts)
+                            .frame(minHeight: 160)
+                            .padding(8)
+                            .scrollContentBackground(.hidden)
+                            .background(AppPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+                            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(AppPalette.border))
+                            .accessibilityLabel("Thoughts")
                     }
-                    .buttonStyle(.plain)
                 }
-                .frame(maxWidth: .infinity)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Thoughts")
-                        .font(.headline)
-                        .accessibilityAddTraits(.isHeader)
-                    TextEditor(text: $thoughts)
-                        .frame(maxHeight: .infinity)
-                        .padding(8)
-                        .scrollContentBackground(.hidden)
-                        .background(AppPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(AppPalette.border))
-                        .scrollDismissesKeyboard(.interactively)
-                        .accessibilityLabel("Thoughts")
-                }
+                .padding(20)
             }
-            .padding(20)
+            .scrollDismissesKeyboard(.interactively)
             .disabled(saving)
             .background(AppPalette.background)
             .foregroundStyle(AppPalette.text)
@@ -548,8 +576,56 @@ private struct PersonalRatingEditor: View {
             }
         }
         .interactiveDismissDisabled(saving)
-        .alert("Couldn’t save your rating and thoughts", isPresented: $saveFailed) {
+        .alert("Couldn’t save your review", isPresented: $saveFailed) {
             Button("OK", role: .cancel) {}
+        }
+    }
+
+    private var ratingControls: some View {
+        VStack(spacing: 2) {
+            ratingTrack
+            HStack(spacing: 6) {
+                adjustment("minus", label: "Decrease rating by a quarter star", step: -1)
+                Text(quarterStars == 0 ? "Not rated" : "\(personalRatingNumber(quarterStars)) / 5")
+                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                    .frame(minWidth: 76)
+                adjustment("plus", label: "Increase rating by a quarter star", step: 1)
+                Button("Clear") { quarterStars = 0 }
+                    .font(.subheadline)
+                    .foregroundStyle(quarterStars == 0 ? AppPalette.secondaryText : AppPalette.accent)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+                    .disabled(quarterStars == 0)
+                    .accessibilityLabel("Clear Rating")
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var moodPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Overall Moods")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            DetailsFlowLayout(spacing: 8) {
+                ForEach(BookMood.allCases, id: \.self) { mood in
+                    let selected = moods.contains(mood)
+                    Button {
+                        if selected { moods.remove(mood) } else { moods.insert(mood) }
+                    } label: {
+                        Text(mood.rawValue)
+                            .font(.subheadline)
+                            .foregroundStyle(selected ? AppPalette.onAccent : AppPalette.text)
+                            .padding(.horizontal, 12)
+                            .frame(minHeight: 44)
+                            .background(selected ? AppPalette.accent : AppPalette.secondarySurface,
+                                        in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
         }
     }
 
@@ -611,11 +687,13 @@ private struct PersonalRatingEditor: View {
         guard !saving else { return }
         saving = true
         let rating = quarterStars == 0 ? nil : quarterStars
+        let selectedMoods = moods
         let draft = thoughts
         Task {
             defer { saving = false }
             do {
-                try await environment.database.savePersonalReview(quarterStars: rating, thoughts: draft, for: book.id)
+                try await environment.database.savePersonalReview(quarterStars: rating, moods: selectedMoods,
+                                                                  thoughts: draft, for: book.id)
                 dismiss()
             } catch {
                 saveFailed = true
@@ -682,6 +760,19 @@ func detailChip(_ text: String) -> some View {
         .padding(.horizontal, 10).padding(.vertical, 7)
         .background(AppPalette.secondarySurface, in: RoundedRectangle(cornerRadius: 8))
         .fixedSize(horizontal: false, vertical: true)
+}
+
+struct DetailsHeaderActionStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(AppPalette.accent)
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .padding(.top, 12)
+            .frame(minWidth: 44, minHeight: 44, alignment: .topTrailing)
+            .contentShape(Rectangle())
+            .padding(.top, -12)
+    }
 }
 
 struct DetailsActionStyle: ButtonStyle {

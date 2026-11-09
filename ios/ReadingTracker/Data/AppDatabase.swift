@@ -169,6 +169,9 @@ final class AppDatabase: Sendable {
             try db.execute(sql: "UPDATE book SET personalRatingQuarterStars = personalRating * 4")
             try db.alter(table: "book") { $0.drop(column: "personalRating") }
         }
+        migrator.registerMigration("v17-personal-moods") { db in
+            try db.alter(table: "book") { $0.add(column: "personalMoods", .text) }
+        }
         return migrator
     }
 
@@ -231,20 +234,31 @@ final class AppDatabase: Sendable {
         }
     }
 
-    func setReadingStatus(_ status: ReadingStatus, for bookIDs: [String]) async throws {
+    /// Returns the saved book when a single book changes to Finished.
+    @discardableResult
+    func setReadingStatus(_ status: ReadingStatus, for bookIDs: [String]) async throws -> Book? {
         try await writer.write { db in
             for id in bookIDs {
-                try db.execute(sql: "UPDATE book SET readingStatus = ? WHERE id = ?", arguments: [status, id])
+                try db.execute(
+                    sql: "UPDATE book SET readingStatus = ? WHERE id = ? AND readingStatus <> ?",
+                    arguments: [status, id, status]
+                )
+                if status == .finished, bookIDs.count == 1, db.changesCount > 0 {
+                    return try Book.fetchOne(db, key: id)
+                }
             }
+            return nil
         }
     }
 
-    func savePersonalReview(quarterStars: Int?, thoughts: String, for bookID: String) async throws {
+    func savePersonalReview(quarterStars: Int?, moods: Set<BookMood>, thoughts: String, for bookID: String) async throws {
         let savedThoughts = thoughts.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : thoughts
+        let orderedMoods = BookMood.allCases.filter { moods.contains($0) }
+        let savedMoods = orderedMoods.isEmpty ? nil : String(decoding: try JSONEncoder().encode(orderedMoods), as: UTF8.self)
         try await writer.write { db in
             try db.execute(
-                sql: "UPDATE book SET personalRatingQuarterStars = ?, personalThoughts = ? WHERE id = ?",
-                arguments: [quarterStars, savedThoughts, bookID]
+                sql: "UPDATE book SET personalRatingQuarterStars = ?, personalMoods = ?, personalThoughts = ? WHERE id = ?",
+                arguments: [quarterStars, savedMoods, savedThoughts, bookID]
             )
             guard db.changesCount > 0 else {
                 throw RecordError.recordNotFound(databaseTableName: Book.databaseTableName, key: ["id": bookID.databaseValue])
