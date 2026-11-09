@@ -3,6 +3,8 @@ services:
     name: reading-tracker-metadata
     runtime: node
     plan: free
+    branch: main
+    autoDeployTrigger: commit
     rootDir: backend
     buildCommand: npm ci --omit=dev
     startCommand: npm start
