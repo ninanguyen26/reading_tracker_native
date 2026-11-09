@@ -26,16 +26,20 @@ export function validateInput(input) {
   return {isbn: identifier, title: values.title, author: values.author};
 }
 const fields = `id title description cached_tags contributions { author { name } } book_series { position series { name } }`;
+function tagNames(tags) {
+  return Array.isArray(tags) ? [...new Set(tags.map(t => typeof t === 'string' ? t : t?.tag ?? t?.name)
+    .filter(t => typeof t === 'string' && t.trim()).map(t => t.trim().slice(0,100)))].slice(0,30) : [];
+}
 function metadata(record, edition = null, matchedISBN = null) {
   if (!Number.isInteger(record?.id) || record.id <= 0) throw new CatalogError(502,'invalid_catalog_response');
-  const tags = record.cached_tags?.Genre;
   return {
     bookID: record.id,
     description: typeof record.description === 'string' ? record.description.slice(0,30000) : null,
     series: (record.book_series ?? []).slice(0,20).filter(s => typeof s.series?.name === 'string')
       .map(s => ({name: s.series.name.slice(0,300), position: Number.isFinite(s.position) ? s.position : null})),
-    genres: Array.isArray(tags) ? [...new Set(tags.map(t => typeof t === 'string' ? t : t?.tag ?? t?.name)
-      .filter(t => typeof t === 'string' && t.trim()).map(t => t.trim().slice(0,100)))].slice(0,30) : [],
+    genres: tagNames(record.cached_tags?.Genre),
+    moods: tagNames(record.cached_tags?.Mood),
+    contentWarnings: tagNames(record.cached_tags?.ContentWarning),
     exactEdition: edition && Number.isInteger(edition.id) && edition.id > 0 && Number.isInteger(edition.pages) && edition.pages > 0
       ? {id: edition.id, isbn: matchedISBN, pages: edition.pages} : null
   };

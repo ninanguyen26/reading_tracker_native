@@ -4,7 +4,7 @@ import {Catalog,validateInput} from './catalog.mjs';
 import {createServer} from './server.mjs';
 const book = {id:42,title:'Test Book',description:'A wizard explores an enchanted forest.',
   contributions:[{author:{name:'Test Author'}}],book_series:[{position:2.5,series:{name:'Wizard Series'}}],
-  cached_tags:{Genre:[{tag:'Fantasy'}],Mood:[{tag:'Horror'}]}};
+  cached_tags:{Genre:[{tag:'Fantasy'}],Mood:[{tag:'Dark'},{tag:'Dark'}],ContentWarning:[{tag:'Blood'}]}};
 const input = {title:'Test Book',author:'Test Author'};
 function setup(responder,options={}) {
   const requests=[];
@@ -15,11 +15,12 @@ function setup(responder,options={}) {
   return {catalog,requests};
 }
 const result = data => Response.json({data});
-test('exact ISBN supplies edition pages and Genre only; credentials go only upstream',async()=>{
+test('exact ISBN supplies edition pages and separate tag categories; credentials go only upstream',async()=>{
   const {catalog,requests}=setup(()=>result({editions:[{id:11,isbn_13:'9780140328721',pages:320,book}]}));
   const data=await catalog.lookup({...input,isbn:'9780140328721'});
   assert.equal(data.exactEdition.pages,320);assert.equal(data.exactEdition.isbn,'9780140328721');
   assert.equal(data.series[0].position,2.5);assert.deepEqual(data.genres,['Fantasy']);
+  assert.deepEqual(data.moods,['Dark']);assert.deepEqual(data.contentWarnings,['Blood']);
   assert.equal(requests[0].init.headers.Authorization,'Bearer test-only-credential');
   assert.ok(!JSON.stringify(data).includes('test-only-credential'));
 });
