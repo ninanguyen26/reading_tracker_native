@@ -61,7 +61,7 @@ struct BookDetailsScreen: View {
                     if let moods = book.hardcoverMoods, !moods.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             heading("Moods")
-                            readingTagChips(moods)
+                            readingTagChips(moods, lowercase: true)
                         }
                         .detailsCard()
                     }
@@ -187,7 +187,7 @@ struct BookDetailsScreen: View {
 
     private var informationCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
                 heading("Genres")
                 Spacer(minLength: 0)
                 Button { showingGenres = true } label: { Label("Edit Genres", systemImage: "pencil") }
@@ -217,25 +217,41 @@ struct BookDetailsScreen: View {
         .detailsCard()
     }
 
-    private func readingTagChips(_ tags: [String]) -> some View {
+    private func readingTagChips(_ tags: [String], lowercase: Bool = false) -> some View {
         DetailsFlowLayout(spacing: 8) {
-            ForEach(tags, id: \.self) { detailChip($0) }
+            ForEach(tags, id: \.self) { tag in
+                detailChip(lowercase ? tag.lowercased() : tag)
+            }
         }
     }
 
     private func contentWarningsCard(_ warnings: [String]) -> some View {
-        DisclosureGroup(isExpanded: $showingContentWarnings) {
-            readingTagChips(warnings)
-                .padding(.top, 10)
-        } label: {
-            Label(showingContentWarnings ? "Content Warnings" : "Show content warnings",
-                  systemImage: "exclamationmark.triangle")
-                .font(.subheadline.weight(.medium))
-                .frame(minHeight: 44)
-                .foregroundStyle(AppPalette.secondaryText)
-                .accessibilityIdentifier("content-warnings-disclosure")
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation { showingContentWarnings.toggle() }
+            } label: {
+                HStack {
+                    heading("Content Warnings")
+                    Spacer()
+                    Image(systemName: showingContentWarnings ? "chevron.down" : "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppPalette.secondaryText)
+                        .accessibilityHidden(true)
+                }
+                .padding([.top, .horizontal], 16)
+                .padding(.bottom, showingContentWarnings ? 10 : 16)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(showingContentWarnings ? "Hide content warnings" : "Show content warnings")
+            .accessibilityIdentifier("content-warnings-disclosure")
+
+            if showingContentWarnings {
+                readingTagChips(warnings)
+                    .padding([.horizontal, .bottom], 16)
+            }
         }
-        .detailsCard()
+        .detailsCard(padding: 0)
     }
 
     private var sourcesCard: some View {
@@ -310,9 +326,9 @@ private struct DetailsActionStyle: ButtonStyle {
 }
 
 private extension View {
-    func detailsCard() -> some View {
+    func detailsCard(padding: CGFloat = 16) -> some View {
         self.frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
+            .padding(padding)
             .background(AppPalette.surface, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(AppPalette.border.opacity(0.65), lineWidth: 1))
     }

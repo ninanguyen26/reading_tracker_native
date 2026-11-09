@@ -102,7 +102,8 @@ final class OpenLibraryUITests: XCTestCase {
         let reveal = app.buttons["Show content warnings"]
         for _ in 0..<4 where !reveal.isHittable { app.swipeUp() }
         XCTAssertTrue(reveal.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Reflective"].exists)
+        XCTAssertTrue(app.staticTexts["reflective"].exists)
+        XCTAssertTrue(app.staticTexts["tense"].exists)
         XCTAssertFalse(app.staticTexts["Blood"].exists)
         reveal.tap()
         XCTAssertTrue(app.staticTexts["Blood"].waitForExistence(timeout: 5))
