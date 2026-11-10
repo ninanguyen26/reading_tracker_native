@@ -94,6 +94,30 @@ final class NavigationUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Results for “logbook”"].waitForNonExistence(timeout: 5))
     }
 
+    func testReactionToolbarButtonOpensPickerOrSavesOneReactionOnHold() {
+        let app = open(epubTitle)
+        showToolbar(app)
+        let reactions = app.buttons["Log Reactions"]
+        XCTAssertTrue(reactions.isHittable)
+        XCTAssertTrue(app.buttons["Add Bookmark"].isHittable)
+
+        reactions.tap()
+        let picker = app.navigationBars["Log Reactions"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        picker.buttons["Cancel"].tap()
+        XCTAssertTrue(picker.waitForNonExistence(timeout: 5))
+
+        reactions.press(forDuration: 1)
+        let tense = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Tense")).firstMatch
+        XCTAssertTrue(tense.waitForExistence(timeout: 5))
+        XCTAssertFalse(picker.exists)
+        tense.tap()
+
+        openContents(app, tab: "Reactions")
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Tense"))
+            .firstMatch.waitForExistence(timeout: 5))
+    }
+
     func testPdfOutlineAndSlider() {
         let app = open(pdfTitle)
         let progress = app.staticTexts["reader-progress"]

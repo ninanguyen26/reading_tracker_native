@@ -172,6 +172,17 @@ final class AppDatabase: Sendable {
         migrator.registerMigration("v17-personal-moods") { db in
             try db.alter(table: "book") { $0.add(column: "personalMoods", .text) }
         }
+        migrator.registerMigration("v18-book-reactions") { db in
+            try db.create(table: BookReaction.databaseTableName) { t in
+                t.primaryKey("id", .text)
+                t.column("bookId", .text).notNull().indexed().references("book", onDelete: .cascade)
+                t.column("kind", .text).notNull()
+                t.column("locator", .text).notNull()
+                t.column("progression", .double).notNull()
+                t.column("locationTitle", .text)
+                t.column("createdAt", .datetime).notNull()
+            }
+        }
         return migrator
     }
 

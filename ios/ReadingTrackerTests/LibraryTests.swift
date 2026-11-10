@@ -418,6 +418,65 @@ final class LibraryTests: XCTestCase {
         XCTAssertTrue(ReaderModel.isSamePlace(try locator("doc.pdf", progression: nil, position: 3), try locator("doc.pdf", progression: nil, position: 3)))
     }
 
+    func testReactionsSaveMultipleChoicesAtOneSpotAndSortByReadingPosition() async throws {
+        let book = try await importer.importBook(from: fixture("sample", "epub"))
+        let early = #"{"href":"chapter-1.xhtml","type":"application/xhtml+xml","locations":{"totalProgression":0.2}}"#
+        let sameSpot = #"{"title":"Chapter 1","locations":{"totalProgression":0.2},"type":"application/xhtml+xml","href":"chapter-1.xhtml"}"#
+        let nearby = #"{"href":"chapter-1.xhtml","type":"application/xhtml+xml","locations":{"totalProgression":0.201}}"#
+        let late = #"{"href":"chapter-3.xhtml","type":"application/xhtml+xml","locations":{"totalProgression":0.8}}"#
+        try await database.addReactions([.tense], bookId: book.id, locator: late,
+                                        progression: 0.8, locationTitle: "Chapter 3")
+        try await database.addReactions([.lovedIt, .tense], bookId: book.id, locator: early,
+                                        progression: 0.2, locationTitle: "Chapter 1")
+        try await database.addReactions([.lovedIt, .surprised], bookId: book.id, locator: sameSpot,
+                                        progression: 0.2, locationTitle: "Chapter 1")
+        try await database.addReactions([.moved], bookId: book.id, locator: nearby,
+                                        progression: 0.201, locationTitle: "Chapter 1")
+
+        var iterator = database.observeReactions(bookId: book.id).makeAsyncIterator()
+        let saved = try await iterator.next()
+        let reactions = try XCTUnwrap(saved)
+        XCTAssertEqual(reactions.map(\.locator), [early, early, sameSpot, sameSpot, nearby, late])
+        let spots = ReactionSpot.group(reactions)
+        XCTAssertEqual(spots.map(\.kinds), [[.lovedIt, .tense, .surprised], [.moved], [.tense]])
+        XCTAssertEqual(spots.map(\.anchor.locator), [early, nearby, late])
+
+        let firstSpot = try XCTUnwrap(spots.first)
+        try await database.editReactions(at: firstSpot, selection: [.tense, .sad])
+        let afterEdit = try await iterator.next()
+        XCTAssertEqual(afterEdit?.map(\.kind), [.tense, .sad, .moved, .tense])
+        XCTAssertEqual(afterEdit?.map(\.locator), [early, early, nearby, late])
+
+        try await database.deleteReactions(at: firstSpot.anchor)
+        let afterDelete = try await iterator.next()
+        XCTAssertEqual(afterDelete?.map(\.locator), [nearby, late])
+
+        try await importer.delete(book)
+        let count = try await database.writer.read { try BookReaction.fetchCount($0) }
+        XCTAssertEqual(count, 0)
+    }
+
+    func testEditingAndDeletingJournalEntriesPreservesOtherEntriesAndOrder() async throws {
+        let book = try await importer.importBook(from: fixture("sample", "epub"))
+        try await database.addJournalEntry(bookId: book.id, text: "First")
+        try await database.addJournalEntry(bookId: book.id, text: "Second")
+        var iterator = database.observeJournal(bookId: book.id).makeAsyncIterator()
+        let initial = try await iterator.next()
+        let entries = try XCTUnwrap(initial)
+        XCTAssertEqual(entries.map(\.text), ["Second", "First"])
+        let first = try XCTUnwrap(entries.last)
+
+        try await database.updateJournalEntry(id: first.id, text: "  Revised first  ")
+        let edited = try await iterator.next()
+        XCTAssertEqual(edited?.map(\.id), entries.map(\.id))
+        XCTAssertEqual(edited?.map(\.createdAt), entries.map(\.createdAt))
+        XCTAssertEqual(edited?.map(\.text), ["Second", "Revised first"])
+
+        try await database.deleteJournalEntry(id: first.id)
+        let remaining = try await iterator.next()
+        XCTAssertEqual(remaining?.map(\.text), ["Second"])
+    }
+
     func testTapZones() {
         XCTAssertEqual(ReaderHostViewController.zone(for: 10, width: 400), .left)
         XCTAssertEqual(ReaderHostViewController.zone(for: 200, width: 400), .middle)

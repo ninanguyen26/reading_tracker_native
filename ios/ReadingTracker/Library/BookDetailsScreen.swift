@@ -8,6 +8,7 @@ struct BookDetailsScreen: View {
     let onRead: () -> Void
     let onDeleted: () -> Void
     let onOpenBook: (String) -> Void
+    let onOpenReaction: (BookReaction) -> Void
     @EnvironmentObject private var environment: AppEnvironment
     @State private var showingLookup = false
     @State private var showingGenres = false
@@ -29,7 +30,8 @@ struct BookDetailsScreen: View {
     }
 
     init(book: Book, coverURL: URL?, fromReader: Bool, libraryBooks: [Book],
-         onRead: @escaping () -> Void, onDeleted: @escaping () -> Void, onOpenBook: @escaping (String) -> Void) {
+         onRead: @escaping () -> Void, onDeleted: @escaping () -> Void, onOpenBook: @escaping (String) -> Void,
+         onOpenReaction: @escaping (BookReaction) -> Void) {
         _book = State(initialValue: book)
         self.coverURL = coverURL
         self.fromReader = fromReader
@@ -37,6 +39,7 @@ struct BookDetailsScreen: View {
         self.onRead = onRead
         self.onDeleted = onDeleted
         self.onOpenBook = onOpenBook
+        self.onOpenReaction = onOpenReaction
     }
     private var languages: [String] { BookDetailsText.nonempty(book.languages) }
     private var metadataSources: [String: String] {
@@ -75,6 +78,7 @@ struct BookDetailsScreen: View {
                 case .myReading:
                     BookJournal(bookID: book.id).detailsCard()
                     overallMoodsCard
+                    ReactionHistory(bookID: book.id, onJump: onOpenReaction)
                 }
             }
             .frame(maxWidth: 600)
@@ -100,7 +104,7 @@ struct BookDetailsScreen: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete Book", role: .destructive, action: deleteBook)
         } message: {
-            Text("This removes the book and its reading progress, bookmarks, highlights, rating, thoughts, and journal entries from this device.")
+            Text("This removes the book and its reading progress, bookmarks, highlights, rating, thoughts, reactions, and journal entries from this device.")
         }
         .alert("Couldn’t delete book", isPresented: Binding(
             get: { deleteError != nil }, set: { if !$0 { deleteError = nil } }

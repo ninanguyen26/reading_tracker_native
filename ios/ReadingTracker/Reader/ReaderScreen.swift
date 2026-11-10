@@ -1,21 +1,35 @@
+import ReadiumShared
 import SwiftUI
+import UIKit
+
+private let readerToolbarIconSize: CGFloat = 15
 
 struct ReaderScreen: View {
     @StateObject private var model: ReaderModel
+    @Binding private var reactionJump: BookReaction?
+    private let initialReaction: BookReaction?
     private let onShowDetails: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @State private var sheet: Sheet?
     /// While dragging the slider, the position it would jump to.
     @State private var scrubbing: Double?
     @State private var scrubCommit: Task<Void, Never>?
+    @State private var showingReactionConfirmation = false
+    @State private var reactionJumpFailed = false
+    @State private var reactionSaveFailed = false
+    @State private var compactToolbar = false
 
-    enum Sheet: Identifiable {
+    enum Sheet: Identifiable, Hashable {
         case settings, navigation, search
+        case reactions(Locator)
         var id: Self { self }
     }
 
-    init(book: Book, environment: AppEnvironment, onShowDetails: @escaping () -> Void) {
+    init(book: Book, environment: AppEnvironment, initialReaction: BookReaction?, reactionJump: Binding<BookReaction?>,
+         onShowDetails: @escaping () -> Void) {
         _model = StateObject(wrappedValue: ReaderModel(book: book, environment: environment))
+        _reactionJump = reactionJump
+        self.initialReaction = initialReaction
         self.onShowDetails = onShowDetails
     }
 
@@ -63,36 +77,62 @@ struct ReaderScreen: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if model.chromeVisible, case .ready = model.state {
-                bottomBar.transition(.move(edge: .bottom).combined(with: .opacity))
-            } else {
-                footer
+            VStack(spacing: 8) {
+                if showingReactionConfirmation, sheet == nil {
+                    Label("Reaction saved", systemImage: "checkmark")
+                        .font(.footnote.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.regularMaterial, in: Capsule())
+                        .environment(\.colorScheme, palette.isDark ? .dark : .light)
+                        .allowsHitTesting(false)
+                }
+                if model.chromeVisible, case .ready = model.state {
+                    bottomBar.transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    footer
+                }
             }
         }
+        .onGeometryChange(for: Bool.self) { geometry in
+            geometry.size.width < 390
+        } action: { compactToolbar = $0 }
         .navigationTitle(model.book.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button(action: onShowDetails) {
-                    Label("Book Details", systemImage: "info.circle")
+                if compactToolbar {
+                    Menu {
+                        detailsButton
+                        settingsButton
+                    } label: {
+                        toolbarLabel("Reader Options", systemImage: "ellipsis")
+                    }
+                } else {
+                    detailsButton
                 }
                 Button { sheet = .search } label: {
-                    Label("Search", systemImage: "magnifyingglass")
+                    toolbarLabel("Search", systemImage: "magnifyingglass")
                 }
                 .disabled(!model.isSearchable)
                 Button { sheet = .navigation } label: {
-                    Label("Contents and Bookmarks", systemImage: "list.bullet")
+                    toolbarLabel("Contents and Bookmarks", systemImage: "list.bullet")
                 }
-                Button { sheet = .settings } label: {
-                    Label("Reading Settings", systemImage: "textformat.size")
+                if !compactToolbar {
+                    settingsButton
                 }
-                Button { model.toggleBookmark() } label: {
-                    Label(
-                        model.currentBookmark == nil ? "Add Bookmark" : "Remove Bookmark",
-                        systemImage: model.currentBookmark == nil ? "bookmark" : "bookmark.fill"
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 0) {
+                    bookmarkButton
+                    ReactionToolbarButton(
+                        isEnabled: model.locator != nil,
+                        onOpen: openReactionPicker,
+                        onQuickPick: saveQuickReaction
                     )
+                    .frame(width: 44, height: 44)
                 }
-                .disabled(model.locator == nil)
+                .fixedSize()
             }
         }
         .toolbar(model.chromeVisible ? .visible : .hidden, for: .navigationBar)
@@ -108,6 +148,10 @@ struct ReaderScreen: View {
                 NavigationSheet(model: model)
             case .search:
                 SearchSheet(model: model)
+            case .reactions(let location):
+                ReactionPicker { kinds in
+                    try await saveReactions(kinds, at: location)
+                }
             }
         }
         .sheet(isPresented: Binding(get: { model.editing != nil && sheet == nil }, set: { if !$0 { model.editing = nil } })) {
@@ -118,9 +162,85 @@ struct ReaderScreen: View {
         }
         .task {
             model.setSystemDark(colorScheme == .dark)
-            await model.load()
+            await model.load(startingAt: initialReaction)
+        }
+        .task(id: model.navigator == nil ? nil : reactionJump?.id) {
+            guard model.navigator != nil, let reaction = reactionJump else { return }
+            let jumped = await model.go(to: reaction)
+            if !Task.isCancelled, reactionJump?.id == reaction.id {
+                reactionJumpFailed = !jumped
+                reactionJump = nil
+            }
+        }
+        .task(id: showingReactionConfirmation && sheet == nil) {
+            guard showingReactionConfirmation, sheet == nil else { return }
+            try? await Task.sleep(for: .seconds(2))
+            if !Task.isCancelled { showingReactionConfirmation = false }
+        }
+        .alert("Couldn’t open this spot", isPresented: $reactionJumpFailed) {
+            Button("OK", role: .cancel) {}
+        }
+        .alert("Couldn’t save your reaction", isPresented: $reactionSaveFailed) {
+            Button("OK", role: .cancel) {}
         }
         .onChange(of: colorScheme) { model.setSystemDark($0 == .dark) }
+    }
+
+    private var detailsButton: some View {
+        Button(action: onShowDetails) {
+            toolbarLabel("Book Details", systemImage: "info.circle")
+        }
+    }
+
+    private var settingsButton: some View {
+        Button { sheet = .settings } label: {
+            toolbarLabel("Reading Settings", systemImage: "textformat.size")
+        }
+    }
+
+    private func toolbarLabel(_ title: LocalizedStringKey, systemImage: String) -> some View {
+        Label {
+            Text(title)
+        } icon: {
+            Image(systemName: systemImage)
+                .font(.system(size: readerToolbarIconSize))
+        }
+    }
+
+    private var bookmarkButton: some View {
+        let bookmarked = model.currentBookmark != nil
+        return Button { model.toggleBookmark() } label: {
+            Image(systemName: bookmarked ? "bookmark.fill" : "bookmark")
+                .font(.system(size: readerToolbarIconSize))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.locator == nil)
+        .accessibilityLabel(bookmarked ? "Remove Bookmark" : "Add Bookmark")
+    }
+
+    private func openReactionPicker() {
+        guard let location = model.locator else { return }
+        showingReactionConfirmation = false
+        sheet = .reactions(location)
+    }
+
+    private func saveQuickReaction(_ kind: ReactionKind) {
+        guard let location = model.locator else { return }
+        Task {
+            do {
+                try await saveReactions([kind], at: location)
+            } catch {
+                reactionSaveFailed = true
+            }
+        }
+    }
+
+    private func saveReactions(_ kinds: Set<ReactionKind>, at location: Locator) async throws {
+        showingReactionConfirmation = false
+        try await model.saveReactions(kinds, at: location)
+        showingReactionConfirmation = true
     }
 
     private var searchChip: some View {
@@ -205,5 +325,49 @@ struct ReaderScreen: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 6)
         .allowsHitTesting(false)
+    }
+}
+
+/// UIKit handles the menu gesture alongside the button's regular tap.
+private struct ReactionToolbarButton: UIViewRepresentable {
+    let isEnabled: Bool
+    let onOpen: () -> Void
+    let onQuickPick: (ReactionKind) -> Void
+
+    final class Coordinator {
+        var onOpen: () -> Void
+        var onQuickPick: (ReactionKind) -> Void
+
+        init(button: ReactionToolbarButton) {
+            onOpen = button.onOpen
+            onQuickPick = button.onQuickPick
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(button: self) }
+
+    func makeUIView(context: Context) -> UIButton {
+        let coordinator = context.coordinator
+        let button = UIButton(type: .system, primaryAction: UIAction { [weak coordinator] _ in
+            coordinator?.onOpen()
+        })
+        let symbolSize = UIImage.SymbolConfiguration(pointSize: readerToolbarIconSize)
+        button.setImage(UIImage(systemName: "face.smiling", withConfiguration: symbolSize), for: .normal)
+        button.accessibilityLabel = "Log Reactions"
+        button.accessibilityHint = "Touch and hold to save one reaction."
+        button.menu = UIMenu(children: ReactionKind.allCases.map { kind in
+            UIAction(title: "\(kind.emoji) \(kind.label)") { [weak coordinator] _ in
+                coordinator?.onQuickPick(kind)
+            }
+        })
+        button.showsMenuAsPrimaryAction = false
+        button.preferredMenuElementOrder = .fixed
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        button.isEnabled = isEnabled
+        context.coordinator.onOpen = onOpen
+        context.coordinator.onQuickPick = onQuickPick
     }
 }

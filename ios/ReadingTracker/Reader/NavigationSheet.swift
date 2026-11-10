@@ -1,17 +1,20 @@
 import ReadiumShared
 import SwiftUI
 
-/// Contents and bookmarks for the open book.
+/// Contents and saved locations for the open book.
 struct NavigationSheet: View {
     enum Tab: String, CaseIterable, Identifiable {
         case contents = "Contents"
         case bookmarks = "Bookmarks"
         case notes = "Notes"
+        case reactions = "Reactions"
         var id: String { rawValue }
     }
 
     @ObservedObject var model: ReaderModel
     @State var tab: Tab = .contents
+    @State private var jumpingToReaction = false
+    @State private var reactionJumpFailed = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -21,6 +24,9 @@ struct NavigationSheet: View {
                 case .contents: contents
                 case .bookmarks: bookmarkList
                 case .notes: notesList
+                case .reactions:
+                    ReactionHistory(bookID: model.book.id, inReader: true, onJump: jumpToReaction)
+                        .disabled(jumpingToReaction)
                 }
             }
             .safeAreaInset(edge: .top) {
@@ -46,6 +52,22 @@ struct NavigationSheet: View {
                     }
                 }
             }
+            .alert("Couldn’t open this spot", isPresented: $reactionJumpFailed) {
+                Button("OK", role: .cancel) {}
+            }
+        }
+    }
+
+    private func jumpToReaction(_ reaction: BookReaction) {
+        guard !jumpingToReaction else { return }
+        jumpingToReaction = true
+        Task {
+            defer { jumpingToReaction = false }
+            if await model.go(to: reaction) {
+                dismiss()
+            } else {
+                reactionJumpFailed = true
+            }
         }
     }
 
@@ -60,7 +82,7 @@ struct NavigationSheet: View {
 
     @ViewBuilder private var contents: some View {
         if model.tableOfContents.isEmpty {
-            emptyState("This book has no table of contents.", systemImage: "list.bullet")
+            readerNavigationEmptyState("This book has no table of contents.", systemImage: "list.bullet")
         } else {
             ScrollViewReader { proxy in
                 List {
@@ -103,7 +125,7 @@ struct NavigationSheet: View {
 
     @ViewBuilder private var bookmarkList: some View {
         if model.bookmarks.isEmpty {
-            emptyState("No bookmarks yet. Tap the bookmark button while reading to save your place.", systemImage: "bookmark")
+            readerNavigationEmptyState("No bookmarks yet. Tap the bookmark button while reading to save your place.", systemImage: "bookmark")
         } else {
             List {
                 ForEach(model.bookmarks) { bookmark in
@@ -135,7 +157,7 @@ struct NavigationSheet: View {
 
     @ViewBuilder private var notesList: some View {
         if model.highlights.isEmpty {
-            emptyState("No highlights yet. Select text while reading and choose Highlight or Note.", systemImage: "highlighter")
+            readerNavigationEmptyState("No highlights yet. Select text while reading and choose Highlight or Note.", systemImage: "highlighter")
         } else {
             List {
                 ForEach(model.highlights) { highlight in
@@ -189,17 +211,18 @@ struct NavigationSheet: View {
         )
     }
 
-    private func emptyState(_ text: String, systemImage: String) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.largeTitle)
-                .foregroundStyle(.secondary)
-            Text(text)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: 300)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
+}
+
+func readerNavigationEmptyState(_ text: String, systemImage: String) -> some View {
+    VStack(spacing: 12) {
+        Image(systemName: systemImage)
+            .font(.largeTitle)
+            .foregroundStyle(.secondary)
+        Text(text)
+            .multilineTextAlignment(.center)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: 300)
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .padding()
 }

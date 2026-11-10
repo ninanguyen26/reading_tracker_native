@@ -15,17 +15,18 @@ struct LibraryView: View {
     @State private var selecting = false
     @State private var selectedBookIds: Set<String> = []
     @State private var confirmingBulkDelete = false
+    @State private var reactionJump: BookReaction?
     // Navigate by ID: a Book value changes as soon as it's opened (progress,
     // last-opened date), which SwiftUI would treat as a different destination.
     @State private var path: [Route] = []
 
     private enum Route: Hashable {
-        case reader(String)
+        case reader(String, initialReaction: BookReaction? = nil)
         case details(String, fromReader: Bool)
 
         var bookID: String {
             switch self {
-            case .reader(let id), .details(let id, _): id
+            case .reader(let id, _), .details(let id, _): id
             }
         }
     }
@@ -158,8 +159,12 @@ struct LibraryView: View {
     @ViewBuilder private func destination(_ route: Route) -> some View {
         if let book = model.books.first(where: { $0.id == route.bookID }) {
             switch route {
-            case .reader:
-                ReaderScreen(book: book, environment: model.environment) {
+            case .reader(_, let initialReaction):
+                ReaderScreen(book: book, environment: model.environment, initialReaction: initialReaction,
+                             reactionJump: Binding(
+                                get: { path.last == route ? reactionJump : nil },
+                                set: { reactionJump = $0 }
+                             )) {
                     path.append(.details(book.id, fromReader: true))
                 }
                 .id(book.id)
@@ -177,6 +182,14 @@ struct LibraryView: View {
                     path.removeAll()
                 } onOpenBook: { id in
                     path.append(.details(id, fromReader: false))
+                } onOpenReaction: { reaction in
+                    guard path.last == route else { return }
+                    if fromReader {
+                        reactionJump = reaction
+                        path.removeLast()
+                    } else {
+                        path.append(.reader(book.id, initialReaction: reaction))
+                    }
                 }
             }
         }

@@ -83,7 +83,7 @@ final class ReaderModel: ObservableObject {
         }
     }
 
-    func load() async {
+    func load(startingAt reaction: BookReaction? = nil) async {
         guard case .loading = state, publication == nil else { return }
         do {
             let publication = try await ReadiumServices.shared.openPublication(
@@ -91,9 +91,14 @@ final class ReaderModel: ObservableObject {
             )
             self.publication = publication
 
-            // Read the saved position fresh, in case it changed since the library listed this book.
-            let saved = try await environment.database.book(id: book.id)?.locator
-            let initialLocation = saved.flatMap { try? Locator(jsonString: $0) }
+            let initialLocation: Locator?
+            if let reaction, let target = try? Locator(jsonString: reaction.locator) {
+                initialLocation = target
+            } else {
+                // Read the saved position fresh, in case it changed since the library listed this book.
+                let saved = try await environment.database.book(id: book.id)?.locator
+                initialLocation = saved.flatMap { try? Locator(jsonString: $0) }
+            }
 
             let navigator: VisualNavigator & UIViewController
             if publication.conforms(to: .pdf) {
@@ -219,6 +224,26 @@ final class ReaderModel: ObservableObject {
         guard let locator = try? Locator(jsonString: bookmark.locator) else { return }
         cancelReadingMovement()
         Task { _ = await navigator?.go(to: locator, options: .animated) }
+    }
+
+    func go(to reaction: BookReaction) async -> Bool {
+        guard reaction.bookId == book.id, let navigator,
+              let target = try? Locator(jsonString: reaction.locator) else { return false }
+        cancelReadingMovement()
+        return await navigator.go(to: target, options: .animated)
+    }
+
+    func saveReactions(_ kinds: Set<ReactionKind>, at location: Locator) async throws {
+        let title: String?
+        if book.format == .pdf, let page = location.locations.position {
+            title = "Page \(page)"
+        } else {
+            title = location.title
+        }
+        try await environment.database.addReactions(
+            kinds, bookId: book.id, locator: location.jsonString(),
+            progression: location.locations.totalProgression ?? 0, locationTitle: title
+        )
     }
 
     /// Jumps to a point (0…1) through the whole book, e.g. from the slider.
