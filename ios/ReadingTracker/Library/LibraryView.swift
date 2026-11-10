@@ -1,8 +1,14 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+private enum LibraryLayout: String, CaseIterable {
+    case grid = "Grid"
+    case card = "Card"
+}
+
 struct LibraryView: View {
     @ObservedObject var model: LibraryModel
+    @AppStorage("library-layout") private var layout: LibraryLayout = .grid
     @State private var showingImporter = false
     @State private var selectedTab: AppTab = .library
     @FocusState private var searchFocused: Bool
@@ -38,6 +44,10 @@ struct LibraryView: View {
     }
 
     private let columns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 20, alignment: .top)]
+
+    private var libraryColumns: [GridItem] {
+        layout == .card ? [GridItem(.flexible())] : columns
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -206,7 +216,9 @@ struct LibraryView: View {
                     ScrollView {
                         importStatus
                         if model.activeShelf != nil && model.booksOnActiveShelf.isEmpty {
-                            Text("No books on this shelf yet. Touch and hold a book to add it.")
+                            Text(layout == .card
+                                 ? "No books on this shelf yet. Use a book’s three-dot menu to add it."
+                                 : "No books on this shelf yet. Touch and hold a book to add it.")
                                 .foregroundStyle(AppPalette.secondaryText)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
@@ -220,9 +232,11 @@ struct LibraryView: View {
                                 .foregroundStyle(AppPalette.secondaryText)
                                 .padding(.top, 40)
                         }
-                        LazyVGrid(columns: columns, spacing: 28) {
+                        LazyVGrid(columns: libraryColumns, spacing: layout == .card ? 12 : 28) {
                             ForEach(model.visibleBooks) { book in
-                                if selecting {
+                                if layout == .card {
+                                    bookCard(book)
+                                } else if selecting {
                                     selectableBook(book)
                                 } else {
                                     bookLink(book)
@@ -335,6 +349,21 @@ struct LibraryView: View {
                         Text(model.filter == .wishlist && sort == .added ? "Recently Saved" : sort.label).tag(sort)
                     }
                 }
+                if model.filter != .wishlist {
+                    Divider()
+                    ForEach(LibraryLayout.allCases, id: \.self) { option in
+                        Button {
+                            layout = option
+                        } label: {
+                            if layout == option {
+                                Label(option.rawValue, systemImage: "checkmark")
+                            } else {
+                                Text(option.rawValue)
+                            }
+                        }
+                        .accessibilityAddTraits(layout == option ? .isSelected : [])
+                    }
+                }
             } label: {
                 Image(systemName: "arrow.up.arrow.down")
                     .font(.title3)
@@ -342,6 +371,7 @@ struct LibraryView: View {
                     .foregroundStyle(.primary)
                     .modifier(LibraryControlSurface())
             }
+            .menuOrder(.fixed)
             .accessibilityLabel("Sort")
             .disabled(model.filter != .wishlist && model.books.isEmpty)
         }
@@ -447,12 +477,12 @@ struct LibraryView: View {
         selectedBookIds = []
     }
 
-    private func selectableBook(_ book: Book) -> some View {
+    private func selectableBook(_ book: Book, layout: LibraryLayout = .grid) -> some View {
         let selected = selectedBookIds.contains(book.id)
         return Button {
             if selected { selectedBookIds.remove(book.id) } else { selectedBookIds.insert(book.id) }
         } label: {
-            BookCell(book: book, coverURL: model.coverURL(for: book), selected: selected)
+            BookCell(book: book, coverURL: model.coverURL(for: book), layout: layout, selected: selected)
         }
         .buttonStyle(.plain)
     }
@@ -517,38 +547,69 @@ struct LibraryView: View {
             BookCell(book: book, coverURL: model.coverURL(for: book), usesLibraryLayout: usesLibraryLayout)
         }
         .buttonStyle(.plain)
-        .contextMenu {
-            Button { showDetails(for: book) } label: {
-                Label("Book Details", systemImage: "info.circle")
-            }
-            Menu {
-                ReadingStatusOptions(current: book.readingStatus) { status in
-                    model.setReadingStatus(status, for: [book]) { finishedBook = $0 }
+        .contextMenu { bookActions(book) }
+        .accessibilityAction(named: "Book Details") { showDetails(for: book) }
+    }
+
+    private func bookCard(_ book: Book) -> some View {
+        ZStack(alignment: .topTrailing) {
+            if selecting {
+                selectableBook(book, layout: .card)
+            } else {
+                NavigationLink(value: Route.reader(book.id)) {
+                    BookCell(book: book, coverURL: model.coverURL(for: book), layout: .card)
                 }
-            } label: {
-                Label("Change Status", systemImage: "checklist")
-            }
-            Menu {
-                ForEach(model.shelfList.shelves) { shelf in
-                    Button { model.toggle(book, on: shelf) } label: {
-                        if model.shelfList.isBook(book.id, on: shelf.id) {
-                            Label(shelf.name, systemImage: "checkmark")
-                        } else {
-                            Text(shelf.name)
-                        }
-                    }
+                .buttonStyle(.plain)
+
+                Menu { bookActions(book) } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
-                Button { nameShelf(.create(adding: [book])) } label: {
-                    Label("New Shelf…", systemImage: "plus")
-                }
-            } label: {
-                Label("Shelves", systemImage: "books.vertical")
-            }
-            Button(role: .destructive) { bookToDelete = book } label: {
-                Label("Delete Book", systemImage: "trash")
+                .menuOrder(.fixed)
+                .accessibilityLabel("More actions for \(book.title)")
             }
         }
-        .accessibilityAction(named: "Book Details") { showDetails(for: book) }
+        .background(AppPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(AppPalette.border)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder private func bookActions(_ book: Book) -> some View {
+        Button { showDetails(for: book) } label: {
+            Label("Book Details", systemImage: "info.circle")
+        }
+        Menu {
+            ReadingStatusOptions(current: book.readingStatus) { status in
+                model.setReadingStatus(status, for: [book]) { finishedBook = $0 }
+            }
+        } label: {
+            Label("Change Status", systemImage: "checklist")
+        }
+        Menu {
+            ForEach(model.shelfList.shelves) { shelf in
+                Button { model.toggle(book, on: shelf) } label: {
+                    if model.shelfList.isBook(book.id, on: shelf.id) {
+                        Label(shelf.name, systemImage: "checkmark")
+                    } else {
+                        Text(shelf.name)
+                    }
+                }
+            }
+            Button { nameShelf(.create(adding: [book])) } label: {
+                Label("New Shelf…", systemImage: "plus")
+            }
+        } label: {
+            Label("Shelves", systemImage: "books.vertical")
+        }
+        Button(role: .destructive) { bookToDelete = book } label: {
+            Label("Delete Book", systemImage: "trash")
+        }
     }
 
     private func showDetails(for book: Book) {
@@ -603,6 +664,7 @@ private struct BookCell: View {
     let book: Book
     let coverURL: URL?
     var usesLibraryLayout = true
+    var layout: LibraryLayout = .grid
     /// Set while selecting books: whether this one is selected.
     var selected: Bool?
 
@@ -625,51 +687,11 @@ private struct BookCell: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            BookCoverView(book: book, coverURL: coverURL, showsPlaceholderTitle: !usesLibraryLayout)
-                .overlay(alignment: .topLeading) {
-                    if !usesLibraryLayout {
-                        Text(book.format.label)
-                            .font(.system(size: 9, weight: .bold))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 3))
-                            .foregroundStyle(.white)
-                            .padding(6)
-                    }
-                }
-                .overlay(alignment: .topTrailing) {
-                    if let selected {
-                        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                            .font(.title3)
-                            .foregroundStyle(selected ? AppPalette.onAccent : .white, AppPalette.accent)
-                            .background(Circle().fill(selected ? .clear : .black.opacity(0.35)))
-                            .padding(6)
-                    }
-                }
-            if usesLibraryLayout {
-                HStack(spacing: 6) {
-                    PersonalRatingStars(quarterStars: book.personalRatingQuarterStars ?? 0)
-                        .font(.system(size: 13))
-                    Spacer(minLength: 0)
-                    progressBadge
-                }
+        Group {
+            if layout == .card {
+                cardContent
             } else {
-                Text(book.title)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                Text(book.author)
-                    .font(.caption)
-                    .foregroundStyle(AppPalette.secondaryText)
-                    .lineLimit(1)
-                HStack(spacing: 6) {
-                    ProgressView(value: book.progression)
-                        .tint(AppPalette.accent)
-                    Text(homeProgressLabel)
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(AppPalette.secondaryText)
-                }
+                gridContent
             }
         }
         .contentShape(Rectangle())
@@ -677,6 +699,93 @@ private struct BookCell: View {
         .accessibilityLabel(bookAccessibilityLabel)
         .accessibilityAddTraits(selected == true ? [.isButton, .isSelected] : .isButton)
         .accessibilityIdentifier("book-\(book.title)")
+    }
+
+    private var cardContent: some View {
+        HStack(spacing: 12) {
+            cover.frame(width: 80)
+            VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 3) {
+                    bookTitle
+                    bookAuthor
+                }
+                .padding(.trailing, selected == nil ? 32 : 0)
+                ratingStars
+                progressBar(label: progressPercentage)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+    }
+
+    private var gridContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            cover
+            if usesLibraryLayout {
+                HStack(spacing: 6) {
+                    ratingStars
+                    Spacer(minLength: 0)
+                    progressBadge
+                }
+            } else {
+                bookTitle
+                bookAuthor
+                progressBar(label: homeProgressLabel)
+            }
+        }
+    }
+
+    private var cover: some View {
+        BookCoverView(book: book, coverURL: coverURL, showsPlaceholderTitle: !usesLibraryLayout)
+            .overlay(alignment: .topLeading) {
+                if !usesLibraryLayout {
+                    Text(book.format.label)
+                        .font(.system(size: 9, weight: .bold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 3))
+                        .foregroundStyle(.white)
+                        .padding(6)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if let selected {
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(selected ? AppPalette.onAccent : .white, AppPalette.accent)
+                        .background(Circle().fill(selected ? .clear : .black.opacity(0.35)))
+                        .padding(6)
+                }
+            }
+    }
+
+    private var bookTitle: some View {
+        Text(book.title)
+            .font(.subheadline.weight(.medium))
+            .lineLimit(layout == .card ? 1 : 2)
+            .multilineTextAlignment(.leading)
+    }
+
+    private var bookAuthor: some View {
+        Text(book.author)
+            .font(.caption)
+            .foregroundStyle(AppPalette.secondaryText)
+            .lineLimit(1)
+    }
+
+    private var ratingStars: some View {
+        PersonalRatingStars(quarterStars: book.personalRatingQuarterStars ?? 0)
+            .font(.system(size: 13))
+    }
+
+    private func progressBar(label: String) -> some View {
+        HStack(spacing: 6) {
+            ProgressView(value: progress)
+                .tint(AppPalette.accent)
+            Text(label)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(AppPalette.secondaryText)
+        }
     }
 
     private var progressBadge: some View {
