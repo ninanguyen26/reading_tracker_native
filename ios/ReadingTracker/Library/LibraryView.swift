@@ -10,6 +10,7 @@ struct LibraryView: View {
     @ObservedObject var model: LibraryModel
     @AppStorage("library-layout") private var layout: LibraryLayout = .grid
     @State private var showingImporter = false
+    @State private var showingWishlistReview = false
     @State private var selectedTab: AppTab = .library
     @FocusState private var searchFocused: Bool
     @State private var bookToDelete: Book?
@@ -47,6 +48,11 @@ struct LibraryView: View {
 
     private var libraryColumns: [GridItem] {
         layout == .card ? [GridItem(.flexible())] : columns
+    }
+
+    private var canReviewWishlistMatches: Bool {
+        !model.wishlistSuggestions.isEmpty && path.isEmpty && !showingImporter &&
+            finishedBook == nil && bookToReview == nil && model.errorMessage == nil
     }
 
     var body: some View {
@@ -157,6 +163,16 @@ struct LibraryView: View {
                 Text(model.errorMessage ?? "")
             }
             .personalReview(finishedBook: $finishedBook, bookToReview: $bookToReview)
+            .onChange(of: canReviewWishlistMatches) { showingWishlistReview = $0 }
+            .sheet(isPresented: $showingWishlistReview) {
+                if let suggestion = model.wishlistSuggestions.first {
+                    WishlistImportReview(suggestion: suggestion) { savedBookID in
+                        try await model.resolveWishlistSuggestion(suggestion, savedBookID: savedBookID)
+                    }
+                    .id(suggestion.id)
+                    .interactiveDismissDisabled()
+                }
+            }
         }
     }
 

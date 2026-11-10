@@ -25,12 +25,44 @@ struct DiscoveryBook: Codable, Identifiable, Sendable {
 
     var sourceURL: URL { URL(string: "https://hardcover.app/books/\(id)")! }
 
+    func matchesISBN(_ key: String) -> Bool {
+        isbns.contains { OpenLibraryISBN.equivalenceKey($0) == key }
+    }
+
     func libraryMatch(in books: [Book]) -> Book? {
         if let matched = books.first(where: { $0.hardcoverBookID == id }) { return matched }
         return books.first { book in
-            guard book.hardcoverBookID == nil, let isbn = OpenLibraryISBN.normalize(book.isbn) else { return false }
-            return isbns.contains(isbn)
+            guard book.hardcoverBookID == nil, let isbn = OpenLibraryISBN.equivalenceKey(book.isbn) else { return false }
+            return matchesISBN(isbn)
         }
+    }
+}
+
+struct WishlistImportSuggestion: Identifiable {
+    let book: Book
+    let candidates: [DiscoveryBook]
+    let metadata: HardcoverMetadata?
+
+    var id: String { book.id }
+
+    static func candidates(for book: Book, in wishlist: [DiscoveryBook], suggestedBookID: Int?) -> [DiscoveryBook] {
+        let isbn = OpenLibraryISBN.equivalenceKey(book.isbn)
+        let title = normalized(book.title)
+        let author = normalized(book.author)
+        let hasTitleAndAuthor = !title.isEmpty && !author.isEmpty && author != "unknown author"
+        return wishlist.filter { saved in
+            saved.id == suggestedBookID ||
+                isbn.map { saved.matchesISBN($0) } == true ||
+                (hasTitleAndAuthor && normalized(saved.title) == title && normalized(saved.author) == author)
+        }
+    }
+
+    private static func normalized(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+                     locale: Locale(identifier: "en_US_POSIX"))
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 }
 

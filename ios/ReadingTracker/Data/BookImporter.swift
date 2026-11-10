@@ -6,11 +6,13 @@ import UIKit
 enum ImportError: LocalizedError, Equatable {
     case unsupportedFile(String)
     case copyFailed(String)
+    case wishlistMatchUnavailable
 
     var errorDescription: String? {
         switch self {
         case .unsupportedFile(let name): "“\(name)” isn’t an EPUB or PDF file."
         case .copyFailed(let name): "“\(name)” couldn’t be copied into your library."
+        case .wishlistMatchUnavailable: "This Wishlist match is no longer available."
         }
     }
 }
@@ -46,7 +48,7 @@ final class BookImporter {
 
     /// Imports a file from anywhere: the Files picker, "Open in…", or the app bundle.
     @discardableResult
-    func importBook(from source: URL) async throws -> Book {
+    func importBook(from source: URL, onWishlistSuggestion: ((WishlistImportSuggestion) -> Void)? = nil) async throws -> Book {
         // Files from the picker or other apps are only readable inside this scope.
         let scoped = source.startAccessingSecurityScopedResource()
         defer { if scoped { source.stopAccessingSecurityScopedResource() } }
@@ -68,6 +70,11 @@ final class BookImporter {
             let publication = try await readium.openPublication(at: destination)
             let metadata = publication.metadata
             let pdfMetadata = format == .pdf ? PDFBookMetadata(url: destination) : nil
+            let isbn: String?
+            switch format {
+            case .epub: isbn = await Self.epubISBN(in: publication)
+            case .pdf: isbn = pdfMetadata?.isbn ?? OpenLibraryISBN.normalize(metadata.identifier)
+            }
             let cover = format == .pdf
                 ? Self.renderPDFCover(at: destination)
                 : try? await publication.coverFitting(maxSize: Self.coverSize).get()
@@ -92,7 +99,7 @@ final class BookImporter {
                 } : pdfMetadata?.series ?? [],
                 subjects: pdfMetadata?.subjects ?? metadata.subjects.compactMap { Self.clean($0.name) },
                 languages: pdfMetadata?.languages ?? metadata.languages.compactMap { Self.clean($0) },
-                isbn: OpenLibraryISBN.normalize(metadata.identifier),
+                isbn: isbn,
                 embeddedEditionYear: format == .epub ? Self.editionYear(from: metadata.published) : pdfMetadata?.editionYear,
                 didReadEmbeddedEditionYear: true,
                 pageCount: initialPages?.count,
@@ -103,10 +110,10 @@ final class BookImporter {
                 locator: nil,
                 progression: 0
             )
-            try await database.insert(book)
-            Task { await updatePageCount(for: book, publication: publication) }
-            enrichAfterImport(book)
-            return book
+            let imported = try await database.insertImportedBook(book)
+            Task { await updatePageCount(for: imported, publication: publication) }
+            enrichAfterImport(imported, onWishlistSuggestion: onWishlistSuggestion)
+            return imported
         } catch {
             // Don't leave half-imported files behind.
             try? FileManager.default.removeItem(at: destination)
@@ -123,7 +130,7 @@ final class BookImporter {
     }
 
     /// Save the imported file immediately; network failures never fail an import.
-    private func enrichAfterImport(_ book: Book) {
+    private func enrichAfterImport(_ book: Book, onWishlistSuggestion: ((WishlistImportSuggestion) -> Void)?) {
         let classifier = classifier
         let openLibrary = openLibrary
         enrichments[book.id] = Task { [weak self] in
@@ -147,13 +154,26 @@ final class BookImporter {
             }
             guard !Task.isCancelled else { return }
             await updateCatalogPages(id: book.id)
-            await self?.updateHardcover(id: book.id)
+            await self?.updateHardcover(for: book, onWishlistSuggestion: onWishlistSuggestion)
             // Always run after enrichment (or its failure), including fully embedded imports.
             await classifier?.classifyBook(id: book.id, database: database)
         }
     }
 
     func waitForMetadata(bookID: String) async { await enrichments[bookID]?.value }
+
+    func resolveWishlistSuggestion(_ suggestion: WishlistImportSuggestion, savedBookID: Int?) async throws {
+        let bookID = suggestion.id
+        if let savedBookID {
+            guard suggestion.candidates.contains(where: { $0.id == savedBookID }),
+                  try await database.mergeWishlistBook(savedBookID, into: bookID, metadata: suggestion.metadata) else {
+                throw ImportError.wishlistMatchUnavailable
+            }
+        } else if let metadata = suggestion.metadata {
+            try await database.enrichHardcover(id: bookID, metadata: metadata)
+        }
+        Task { await classifier?.classifyBook(id: bookID, database: database) }
+    }
 
     /// Revisit an existing book when its details are opened, without rescanning the library.
     func updatePublicationYears(id: String) async {
@@ -187,7 +207,7 @@ final class BookImporter {
             try Task.checkCancellation()
             // A matched record from an older backend has no year fields. Retry after it is updated.
             if let years = metadata == nil ? HardcoverPublicationYears() : metadata?.publicationYears {
-                try await database.saveHardcoverPublicationYears(id: id, isbn: latest.isbn, years: years)
+                try await database.saveHardcoverPublicationYears(id: id, isbn: latest.isbn, bookID: metadata?.bookID, years: years)
             }
         } catch { /* Retry on a later visit after a network failure. */ }
     }
@@ -278,23 +298,69 @@ final class BookImporter {
     }
 
     /// Optional account-backed fallback. Never blocks saving or reading an import.
-    private func updateHardcover(id: String) async {
-        guard let hardcover, !Task.isCancelled,
-              let book = try? await database.book(id: id),
-              book.needsHardcoverReadingMetadata || BookDetailsText.description(book.description) == nil || book.series.isEmpty ||
-                book.hardcoverGenres.isEmpty || book.pageCountSource == nil || book.pageCountSource == .estimated else { return }
+    private func updateHardcover(for imported: Book, onWishlistSuggestion: ((WishlistImportSuggestion) -> Void)?) async {
+        guard !Task.isCancelled, let book = try? await database.book(id: imported.id) else { return }
+        let wishlist = imported.hardcoverBookID == nil ? (try? await database.wishlistBooks()) ?? [] : []
+        var metadata: HardcoverMetadata?
+        var verifiedISBNMatch = false
+        var lookupCompleted = false
         do {
-            let metadata = try await hardcover.metadata(for: book)
-            try Task.checkCancellation()
+            if let hardcover {
+                // This request has no title or author fallback. Only the file's own ISBN can verify a match.
+                if !wishlist.isEmpty, let isbn = imported.isbn, OpenLibraryISBN.equivalenceKey(isbn) != nil {
+                    metadata = try await hardcover.metadata(matchingISBN: isbn)
+                    verifiedISBNMatch = metadata != nil
+                }
+                if metadata == nil { metadata = try await hardcover.metadata(for: book) }
+                lookupCompleted = true
+            }
+        } catch { /* Local title and author matches are still available offline. */ }
+        guard !Task.isCancelled else { return }
+
+        do {
+            if verifiedISBNMatch, let metadata, wishlist.contains(where: { $0.id == metadata.bookID }),
+               try await database.mergeWishlistBook(metadata.bookID, into: book.id, metadata: metadata) {
+                return
+            }
+            if !verifiedISBNMatch, let onWishlistSuggestion {
+                let candidates = WishlistImportSuggestion.candidates(for: imported, in: wishlist,
+                                                                     suggestedBookID: metadata?.bookID)
+                if !candidates.isEmpty {
+                    onWishlistSuggestion(WishlistImportSuggestion(book: book, candidates: candidates, metadata: metadata))
+                    return
+                }
+            }
             if let metadata {
-                try await database.enrichHardcover(id: id, metadata: metadata)
-            } else {
-                try await database.saveHardcoverReadingMetadata(id: id, metadata: nil, recordNoMatch: true)
+                try await database.enrichHardcover(id: book.id, metadata: metadata)
+            } else if lookupCompleted {
+                try await database.saveHardcoverReadingMetadata(id: book.id, metadata: nil, recordNoMatch: true)
             }
         } catch { /* Authentication, offline and catalog failures leave the local book usable. */ }
     }
 
     // MARK: Helpers
+
+    private static func epubISBN(in publication: Publication) async -> String? {
+        if let primary = OpenLibraryISBN.normalize(publication.metadata.identifier),
+           OpenLibraryISBN.equivalenceKey(primary) != nil { return primary }
+
+        // Readium exposes the primary identifier, which may be a UUID. The package can also list an ISBN.
+        let containerNamespace = "urn:oasis:names:tc:opendocument:xmlns:container"
+        let opfNamespace = "http://www.idpf.org/2007/opf"
+        guard let container = await epubXML(in: publication, at: "META-INF/container.xml"),
+              let rootfile = container.nodes(namespace: containerNamespace, name: "rootfile").first,
+              let packagePath = rootfile.attributes[BookMetadataXML.key("", "full-path")],
+              let package = await epubXML(in: publication, at: packagePath),
+              let metadata = package.nodes(namespace: opfNamespace, name: "metadata").first else { return nil }
+        return OpenLibraryISBN.uniqueISBN(in: metadata.values(namespace: BookMetadataXML.dc, name: "identifier"))
+    }
+
+    private static func epubXML(in publication: Publication, at path: String) async -> BookMetadataXML.Node? {
+        guard let href = RelativeURL(string: path), let resource = publication.get(href),
+              let data = await resource.read(range: 0..<2_000_001).getOrNil(),
+              data.count <= 2_000_000 else { return nil }
+        return BookMetadataXML.parse(data)
+    }
 
     private static func editionYear(from date: Date?) -> Int? {
         guard let date else { return nil }

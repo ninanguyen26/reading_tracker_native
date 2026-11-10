@@ -225,6 +225,26 @@ final class AppDatabase: Sendable {
         try await writer.write { try book.insert($0) }
     }
 
+    func insertImportedBook(_ imported: Book) async throws -> Book {
+        try await writer.write { db in
+            var book = imported
+            var wishlistID: Int?
+            if book.hardcoverBookID == nil, let isbn = OpenLibraryISBN.equivalenceKey(book.isbn),
+               let wishlist = try? Self.wishlistBooks(in: db) {
+                let matches = wishlist.filter { $0.matchesISBN(isbn) }
+                if matches.count == 1 {
+                    wishlistID = matches[0].id
+                    book.hardcoverBookID = wishlistID
+                }
+            }
+            try book.insert(db)
+            if let wishlistID {
+                try Self.removeWishlistBook(wishlistID, in: db)
+            }
+            return book
+        }
+    }
+
     func book(id: String) async throws -> Book? {
         try await writer.read { try Book.fetchOne($0, key: id) }
     }
@@ -310,17 +330,42 @@ final class AppDatabase: Sendable {
                     arguments: [book.id, data, Date()]
                 )
             } else {
-                try db.execute(sql: "DELETE FROM wishlist WHERE id = ?", arguments: [book.id])
+                try Self.removeWishlistBook(book.id, in: db)
             }
         }
     }
 
+    func wishlistBooks() async throws -> [DiscoveryBook] {
+        try await writer.read { try Self.wishlistBooks(in: $0) }
+    }
+
     func observeWishlist() -> AsyncValueObservation<[DiscoveryBook]> {
         ValueObservation.tracking { db in
-            let books = try Data.fetchAll(db, sql: "SELECT book FROM wishlist ORDER BY savedAt DESC, id DESC")
-            let decoder = JSONDecoder()
-            return try books.map { try decoder.decode(DiscoveryBook.self, from: $0) }
+            try Self.wishlistBooks(in: db)
         }.values(in: writer)
+    }
+
+    func mergeWishlistBook(_ wishlistID: Int, into bookID: String, metadata: HardcoverMetadata?) async throws -> Bool {
+        try await writer.write { db in
+            guard var book = try Book.fetchOne(db, key: bookID),
+                  book.hardcoverBookID == nil || book.hardcoverBookID == wishlistID else { return false }
+            try Self.removeWishlistBook(wishlistID, in: db)
+            guard db.changesCount > 0 else { return false }
+            book.hardcoverBookID = wishlistID
+            if let metadata, metadata.bookID == wishlistID { book = metadata.filling(book) }
+            try book.update(db)
+            return true
+        }
+    }
+
+    private static func wishlistBooks(in db: Database) throws -> [DiscoveryBook] {
+        let books = try Data.fetchAll(db, sql: "SELECT book FROM wishlist ORDER BY savedAt DESC, id DESC")
+        let decoder = JSONDecoder()
+        return try books.map { try decoder.decode(DiscoveryBook.self, from: $0) }
+    }
+
+    private static func removeWishlistBook(_ id: Int, in db: Database) throws {
+        try db.execute(sql: "DELETE FROM wishlist WHERE id = ?", arguments: [id])
     }
 
     // MARK: Bookmarks

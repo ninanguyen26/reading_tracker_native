@@ -3,6 +3,11 @@ import GRDB
 
 protocol HardcoverEnriching: Sendable {
     func metadata(for book: Book) async throws -> HardcoverMetadata?
+    func metadata(matchingISBN isbn: String) async throws -> HardcoverMetadata?
+}
+
+extension HardcoverEnriching {
+    func metadata(matchingISBN isbn: String) async throws -> HardcoverMetadata? { nil }
 }
 
 struct HardcoverPublicationYears: Codable, Hashable, Sendable {
@@ -83,7 +88,8 @@ struct HardcoverMetadata: Sendable {
 extension AppDatabase {
     func enrichHardcover(id: String, metadata: HardcoverMetadata) async throws {
         try await writer.write { db in
-            guard let latest = try Book.fetchOne(db, key: id) else { return }
+            guard let latest = try Book.fetchOne(db, key: id),
+                  latest.hardcoverBookID == nil || latest.hardcoverBookID == metadata.bookID else { return }
             try metadata.filling(latest).update(db)
         }
     }
@@ -101,6 +107,7 @@ extension AppDatabase {
             guard var book = try Book.fetchOne(db, key: id), book.needsHardcoverReadingMetadata ||
                     (recordNoMatch && book.hardcoverPublicationYears == nil) else { return }
             if let metadata {
+                guard book.hardcoverBookID == nil || book.hardcoverBookID == metadata.bookID else { return }
                 metadata.applyReadingMetadata(to: &book)
             } else {
                 if book.hardcoverMoods == nil { book.hardcoverMoods = [] }
@@ -114,9 +121,10 @@ extension AppDatabase {
         }
     }
 
-    func saveHardcoverPublicationYears(id: String, isbn: String?, years: HardcoverPublicationYears) async throws {
+    func saveHardcoverPublicationYears(id: String, isbn: String?, bookID: Int?, years: HardcoverPublicationYears) async throws {
         try await writer.write { db in
             guard var book = try Book.fetchOne(db, key: id), book.isbn == isbn,
+                  bookID == nil || book.hardcoverBookID == nil || book.hardcoverBookID == bookID,
                   book.hardcoverPublicationYears == nil else { return }
             book.hardcoverPublicationYears = years
             try book.update(db)
@@ -126,6 +134,7 @@ extension AppDatabase {
     func saveMissingHardcoverGenreTags(id: String, metadata: HardcoverMetadata) async throws {
         try await writer.write { db in
             guard var book = try Book.fetchOne(db, key: id), book.isAutomaticallyUnclassified,
+                  book.hardcoverBookID == nil || book.hardcoverBookID == metadata.bookID,
                   book.hardcoverGenres.isEmpty else { return }
             metadata.applyGenreTags(to: &book)
             if !book.hardcoverGenres.isEmpty {
@@ -173,17 +182,26 @@ actor HardcoverClient: HardcoverEnriching {
                                      rating: 4.24, ratingsCount: 1283, pages: nil)
         }
         #endif
-        guard let endpoint else { throw HardcoverError.notConfigured }
-        guard Date() >= backoff else { throw HardcoverError.rateLimited }
         let isbn = OpenLibraryISBN.normalize(book.isbn)
         guard isbn != nil || (!book.title.isEmpty && !book.author.isEmpty && book.author != "Unknown author") else { return nil }
+        return try await lookup(Lookup(isbn: isbn, title: String(book.title.prefix(500)), author: String(book.author.prefix(300))))
+    }
+
+    func metadata(matchingISBN isbn: String) async throws -> HardcoverMetadata? {
+        guard let isbn = OpenLibraryISBN.normalize(isbn) else { return nil }
+        return try await lookup(Lookup(isbn: isbn, title: "", author: ""))
+    }
+
+    private func lookup(_ input: Lookup) async throws -> HardcoverMetadata? {
+        guard let endpoint else { throw HardcoverError.notConfigured }
+        guard Date() >= backoff else { throw HardcoverError.rateLimited }
+        let isbn = input.isbn
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 90 // Accommodate Render Free cold starts in a background task.
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(Lookup(isbn: isbn, title: String(book.title.prefix(500)),
-                                                          author: String(book.author.prefix(300))))
+        request.httpBody = try JSONEncoder().encode(input)
         for attempt in 0..<2 {
             try Task.checkCancellation()
             do {

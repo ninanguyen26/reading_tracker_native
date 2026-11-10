@@ -3,6 +3,25 @@ import GRDB
 import NaturalLanguage
 
 enum OpenLibraryISBN {
+    static func uniqueISBN(in values: [String]) -> String? {
+        let isbns = values.compactMap(normalize).filter { equivalenceKey($0) != nil }
+        guard Set(isbns.compactMap(equivalenceKey)).count == 1 else { return nil }
+        return isbns.first { $0.count == 13 } ?? isbns.first
+    }
+
+    /// Compare ISBN-10 and its equivalent ISBN-13 as the same edition.
+    static func equivalenceKey(_ value: String?) -> String? {
+        guard let isbn = normalize(value) else { return nil }
+        guard isbn.count == 10 else {
+            return isbn.hasPrefix("978") || isbn.hasPrefix("979") ? isbn : nil
+        }
+        let prefix = "978" + isbn.dropLast()
+        let sum = prefix.enumerated().reduce(0) { sum, digit in
+            sum + digit.element.wholeNumberValue! * (digit.offset.isMultiple(of: 2) ? 1 : 3)
+        }
+        return prefix + String((10 - sum % 10) % 10)
+    }
+
     static func normalize(_ value: String?) -> String? {
         guard var value = value?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() else { return nil }
         for prefix in ["URN:ISBN:", "ISBN:", "ISBN "] where value.hasPrefix(prefix) {

@@ -28,6 +28,7 @@ final class LibraryModel: ObservableObject {
         didSet { UserDefaults.standard.set(selectedShelfId, forKey: Self.shelfKey) }
     }
     @Published private(set) var importing: [String] = []
+    @Published private(set) var wishlistSuggestions: [WishlistImportSuggestion] = []
     @Published var errorMessage: String?
 
     let environment: AppEnvironment
@@ -155,7 +156,9 @@ final class LibraryModel: ObservableObject {
                 importing.append(url.lastPathComponent)
                 defer { importing.removeAll { $0 == url.lastPathComponent } }
                 do {
-                    try await environment.importer.importBook(from: url)
+                    try await environment.importer.importBook(from: url) { [weak self] suggestion in
+                        self?.wishlistSuggestions.append(suggestion)
+                    }
                 } catch {
                     failures.append(error.localizedDescription)
                 }
@@ -164,6 +167,11 @@ final class LibraryModel: ObservableObject {
             }
             if !failures.isEmpty { errorMessage = failures.joined(separator: "\n") }
         }
+    }
+
+    func resolveWishlistSuggestion(_ suggestion: WishlistImportSuggestion, savedBookID: Int?) async throws {
+        try await environment.importer.resolveWishlistSuggestion(suggestion, savedBookID: savedBookID)
+        wishlistSuggestions.removeAll { $0.id == suggestion.id }
     }
 
     func delete(_ book: Book) {

@@ -60,6 +60,139 @@ final class LibraryTests: XCTestCase {
 
     // MARK: Import
 
+    func testImportMovesTheSingleMatchingWishlistISBNAndKeepsTheLocalEdition() async throws {
+        let saved = wishlistBook(id: 42, isbns: ["0-14-032872-6"])
+        let other = wishlistBook(id: 43)
+        try await database.setWishlisted(saved, saved: true)
+        try await database.setWishlisted(other, saved: true)
+        let source = try wishlistPDF()
+        defer { try? FileManager.default.removeItem(at: source) }
+        let offline = BookImporter(database: database, storage: storage, openLibrary: nil, classifier: nil, hardcover: nil)
+
+        let imported = try await offline.importBook(from: source) { _ in
+            XCTFail("A unique ISBN match should move automatically")
+        }
+        await offline.waitForMetadata(bookID: imported.id)
+
+        let remaining = try await database.wishlistBooks()
+        XCTAssertEqual(remaining.map(\.id), [other.id])
+        XCTAssertEqual(imported.hardcoverBookID, saved.id)
+        XCTAssertEqual(imported.isbn, "9780140328721")
+        XCTAssertEqual(imported.pageCount, 1)
+        XCTAssertNotNil(imported.coverFileName)
+        XCTAssertEqual(imported.readingStatus, .tbr)
+    }
+
+    func testImportMovesAWishlistWorkVerifiedByAnISBNFromAnotherEdition() async throws {
+        let saved = wishlistBook(id: 42, isbns: ["9780140328738"])
+        try await database.setWishlisted(saved, saved: true)
+        let source = try wishlistPDF()
+        defer { try? FileManager.default.removeItem(at: source) }
+        let importer = BookImporter(database: database, storage: storage, openLibrary: nil, classifier: nil,
+                                    hardcover: WishlistCatalogStub(verifiedISBN: "9780140328721"))
+
+        let imported = try await importer.importBook(from: source) { _ in
+            XCTFail("An ISBN-verified work match should move automatically")
+        }
+        await importer.waitForMetadata(bookID: imported.id)
+
+        let remaining = try await database.wishlistBooks()
+        let linked = try await database.book(id: imported.id)
+        XCTAssertTrue(remaining.isEmpty)
+        XCTAssertEqual(linked?.hardcoverBookID, saved.id)
+        XCTAssertEqual(linked?.coverFileName, imported.coverFileName)
+        XCTAssertEqual(linked?.isbn, imported.isbn)
+    }
+
+    func testImportFindsAnISBNAlongsideThePrimaryEPUBIdentifier() async throws {
+        let saved = wishlistBook(id: 42, isbns: ["9780140328721"])
+        try await database.setWishlisted(saved, saved: true)
+        let offline = BookImporter(database: database, storage: storage, openLibrary: nil, classifier: nil, hardcover: nil)
+
+        let imported = try await offline.importBook(from: fixture("secondary-isbn", "epub"))
+        await offline.waitForMetadata(bookID: imported.id)
+
+        let remaining = try await database.wishlistBooks()
+        XCTAssertTrue(remaining.isEmpty)
+        XCTAssertEqual(imported.isbn, "9780140328721")
+        XCTAssertEqual(imported.hardcoverBookID, saved.id)
+    }
+
+    func testAmbiguousImportWaitsForSelectionAndPreservesTheOtherWishlistEntry() async throws {
+        let catalogMatch = wishlistBook(id: 42, isbns: ["0-14-032872-6"])
+        let selected = wishlistBook(id: 43, isbns: ["9780140328721"])
+        try await database.setWishlisted(catalogMatch, saved: true)
+        try await database.setWishlisted(selected, saved: true)
+        let source = try wishlistPDF()
+        defer { try? FileManager.default.removeItem(at: source) }
+        let importer = BookImporter(database: database, storage: storage, openLibrary: nil, classifier: nil,
+                                    hardcover: WishlistCatalogStub())
+        var suggestion: WishlistImportSuggestion?
+
+        let imported = try await importer.importBook(from: source) { suggestion = $0 }
+        await importer.waitForMetadata(bookID: imported.id)
+
+        let review = try XCTUnwrap(suggestion)
+        let before = try await database.wishlistBooks()
+        XCTAssertEqual(Set(review.candidates.map(\.id)), Set([catalogMatch.id, selected.id]))
+        XCTAssertEqual(Set(before.map(\.id)), Set([catalogMatch.id, selected.id]))
+
+        try await importer.resolveWishlistSuggestion(review, savedBookID: selected.id)
+        let remaining = try await database.wishlistBooks()
+        let linked = try await database.book(id: imported.id)
+        XCTAssertEqual(remaining.map(\.id), [catalogMatch.id])
+        XCTAssertEqual(linked?.hardcoverBookID, selected.id)
+        XCTAssertTrue(linked?.hardcoverGenres.isEmpty == true)
+    }
+
+    func testTitleAndAuthorSuggestionCanBeSkipped() async throws {
+        let saved = wishlistBook(id: 42)
+        try await database.setWishlisted(saved, saved: true)
+        let source = try metadataPDF()
+        defer { try? FileManager.default.removeItem(at: source) }
+        let offline = BookImporter(database: database, storage: storage, openLibrary: nil, classifier: nil, hardcover: nil)
+        var suggestion: WishlistImportSuggestion?
+
+        let imported = try await offline.importBook(from: source) { suggestion = $0 }
+        await offline.waitForMetadata(bookID: imported.id)
+
+        let review = try XCTUnwrap(suggestion)
+        XCTAssertEqual(review.candidates.map(\.id), [saved.id])
+        try await offline.resolveWishlistSuggestion(review, savedBookID: nil)
+        let remaining = try await database.wishlistBooks()
+        let linked = try await database.book(id: imported.id)
+        XCTAssertEqual(remaining.map(\.id), [saved.id])
+        XCTAssertNil(linked?.hardcoverBookID)
+    }
+
+    private func wishlistBook(id: Int, isbns: [String] = []) -> DiscoveryBook {
+        DiscoveryBook(id: id, title: "Metadata Test", author: "Test Author", description: nil,
+                      coverURL: nil, alternateCoverURLs: nil, isbns: isbns, language: "en")
+    }
+
+    private func wishlistPDF() throws -> URL {
+        try metadataPDF(xmp: """
+            <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+                <rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/">
+                    <dc:identifier>urn:isbn:9780140328721</dc:identifier>
+                </rdf:Description>
+            </rdf:RDF>
+            """)
+    }
+
+    private struct WishlistCatalogStub: HardcoverEnriching {
+        var verifiedISBN: String?
+
+        func metadata(for book: Book) async throws -> HardcoverMetadata? {
+            HardcoverMetadata(bookID: 42, description: nil, series: [], genres: ["Fantasy"], pages: nil)
+        }
+
+        func metadata(matchingISBN isbn: String) async throws -> HardcoverMetadata? {
+            guard isbn == verifiedISBN else { return nil }
+            return HardcoverMetadata(bookID: 42, description: nil, series: [], genres: ["Fantasy"], pages: nil)
+        }
+    }
+
     func testBookDetailsDescriptionDisplaysTextWithoutMarkup() {
         let text = BookDetailsText.description("<p>A journey &amp; a discovery.</p><p>Second paragraph.</p><img src='https://example.org/cover.jpg'><script>hidden()</script>")
         XCTAssertTrue(text?.contains("A journey & a discovery.") == true)

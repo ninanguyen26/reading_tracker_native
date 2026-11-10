@@ -369,6 +369,85 @@ struct WishlistView: View {
     }
 }
 
+struct WishlistImportReview: View {
+    let suggestion: WishlistImportSuggestion
+    let onResolve: (Int?) async throws -> Void
+
+    @State private var selectedID: Int?
+    @State private var resolving = false
+    @State private var errorMessage: String?
+
+    private var selection: Int? {
+        suggestion.candidates.count == 1 ? suggestion.candidates.first?.id : selectedID
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(suggestion.candidates.count == 1
+                         ? "Move this book from Wishlist to Library?"
+                         : "Which Wishlist book matches your import?")
+                        .font(.headline)
+                    Text("Imported “\(suggestion.book.title)”")
+                        .foregroundStyle(AppPalette.secondaryText)
+                    ForEach(suggestion.candidates) { book in
+                        Button {
+                            selectedID = book.id
+                        } label: {
+                            HStack(spacing: 12) {
+                                DiscoveryCover(book: book, showsPlaceholderTitle: false).frame(width: 44)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(book.title).font(.subheadline.weight(.semibold))
+                                    if !book.author.isEmpty {
+                                        Text(book.author).font(.caption).foregroundStyle(AppPalette.secondaryText)
+                                    }
+                                }
+                                Spacer()
+                                Image(systemName: selection == book.id ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(AppPalette.accent)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(selection == book.id ? .isSelected : [])
+                    }
+                    if let errorMessage {
+                        Text(errorMessage).font(.footnote).foregroundStyle(AppPalette.error)
+                    }
+                    Button("Move to Library") { resolve(selection) }
+                        .buttonStyle(AppPrimaryButtonStyle())
+                        .disabled(selection == nil)
+                }
+                .padding(20)
+            }
+            .navigationTitle("Wishlist Match")
+            .navigationBarTitleDisplayMode(.inline)
+            .background(AppPalette.background)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Skip") { resolve(nil) }
+                }
+            }
+            .disabled(resolving)
+        }
+    }
+
+    private func resolve(_ bookID: Int?) {
+        resolving = true
+        errorMessage = nil
+        Task {
+            defer { resolving = false }
+            do {
+                try await onResolve(bookID)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+}
+
 private struct DiscoveryBookPreview: View {
     let book: DiscoveryBook
     @Environment(\.dismiss) private var dismiss
