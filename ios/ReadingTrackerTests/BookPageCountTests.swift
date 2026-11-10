@@ -50,20 +50,6 @@ final class BookPageCountTests: XCTestCase {
         }
     }
 
-    func testReadingPaceLearnsFromPlausibleSamplesAndUsesABaselineUntilThen() {
-        var pace = EPUBReadingPace()
-        XCTAssertFalse(pace.record(words: 100, seconds: 1))
-        XCTAssertFalse(pace.record(words: 500, seconds: 180))
-        XCTAssertFalse(pace.record(words: -100, seconds: 30))
-        for _ in 0..<2 { XCTAssertTrue(pace.record(words: 100, seconds: 25)) }
-        XCTAssertNil(pace.learnedSpeed)
-        XCTAssertEqual(pace.speed(startingWith: 180), 180)
-
-        XCTAssertTrue(pace.record(words: 100, seconds: 25))
-        XCTAssertEqual(pace.learnedSpeed, 240)
-        XCTAssertEqual(pace.speed(startingWith: 180), 205)
-    }
-
     func testRealPDFFilesAndEPUBPaginationOrFallback() async throws {
         let db = try AppDatabase.inMemory()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

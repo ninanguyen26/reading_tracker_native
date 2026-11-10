@@ -28,6 +28,36 @@ final class LibraryTests: XCTestCase {
         try FileManager.default.contentsOfDirectory(atPath: storage.directory.path).sorted()
     }
 
+    func testWishlistPersistsCatalogBooksWithoutCreatingLibraryBooks() async throws {
+        let book = DiscoveryBook(
+            id: 42, title: "A Catalog Book", author: "Avery Quinn", description: "A new story.",
+            coverURL: URL(string: "https://images.hardcover.app/cover.jpg"), alternateCoverURLs: nil,
+            isbns: ["9780140328721"], language: "en"
+        )
+        let diskDatabase = try AppDatabase.onDisk(directory: storage.directory)
+        let initiallySaved = try await diskDatabase.isWishlisted(book.id)
+        XCTAssertFalse(initiallySaved)
+        try await diskDatabase.setWishlisted(book, saved: true)
+        try await diskDatabase.setWishlisted(book, saved: true)
+
+        let reopened = try AppDatabase.onDisk(directory: storage.directory)
+        let isSaved = try await reopened.isWishlisted(book.id)
+        XCTAssertTrue(isSaved)
+        var wishlist = reopened.observeWishlist().makeAsyncIterator()
+        let savedBooks = try await wishlist.next()
+        XCTAssertEqual(savedBooks?.map(\.id), [book.id])
+        XCTAssertEqual(savedBooks?.first?.title, book.title)
+        XCTAssertEqual(savedBooks?.first?.coverSources, book.coverSources)
+        let libraryBooks = try await reopened.allBooks()
+        XCTAssertTrue(libraryBooks.isEmpty)
+
+        try await reopened.setWishlisted(book, saved: false)
+        let remaining = try await wishlist.next()
+        XCTAssertEqual(remaining?.count, 0)
+        let isStillSaved = try await reopened.isWishlisted(book.id)
+        XCTAssertFalse(isStillSaved)
+    }
+
     // MARK: Import
 
     func testBookDetailsDescriptionDisplaysTextWithoutMarkup() {

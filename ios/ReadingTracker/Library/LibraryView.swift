@@ -23,12 +23,6 @@ struct LibraryView: View {
     private enum Route: Hashable {
         case reader(String, initialReaction: BookReaction? = nil)
         case details(String, fromReader: Bool)
-
-        var bookID: String {
-            switch self {
-            case .reader(let id, _), .details(let id, _): id
-            }
-        }
     }
 
     private enum ShelfNaming {
@@ -74,7 +68,7 @@ struct LibraryView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(selectedTab == .home ? .hidden : .visible, for: .navigationBar)
             .toolbar {
-                if selectedTab == .library && !model.books.isEmpty {
+                if selectedTab == .library && model.filter != .wishlist && !model.books.isEmpty {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(selecting ? "Done" : "Select") {
                             searchFocused = false
@@ -157,9 +151,9 @@ struct LibraryView: View {
     }
 
     @ViewBuilder private func destination(_ route: Route) -> some View {
-        if let book = model.books.first(where: { $0.id == route.bookID }) {
-            switch route {
-            case .reader(_, let initialReaction):
+        switch route {
+        case .reader(let id, let initialReaction):
+            if let book = model.books.first(where: { $0.id == id }) {
                 ReaderScreen(book: book, environment: model.environment, initialReaction: initialReaction,
                              reactionJump: Binding(
                                 get: { path.last == route ? reactionJump : nil },
@@ -168,7 +162,9 @@ struct LibraryView: View {
                     path.append(.details(book.id, fromReader: true))
                 }
                 .id(book.id)
-            case .details(_, let fromReader):
+            }
+        case .details(let id, let fromReader):
+            if let book = model.books.first(where: { $0.id == id }) {
                 BookDetailsScreen(book: book, coverURL: model.coverURL(for: book),
                                   fromReader: fromReader, libraryBooks: model.books) {
                     guard path.last == route else { return }
@@ -199,9 +195,11 @@ struct LibraryView: View {
         switch selectedTab {
         case .library:
             VStack(spacing: 0) {
-                readingStatusGrid
                 librarySearch
-                if model.loaded && model.books.isEmpty {
+                if model.filter == .wishlist {
+                    importStatus
+                    WishlistView(columns: columns, query: model.query, sort: model.sort)
+                } else if model.loaded && model.books.isEmpty {
                     EmptyLibraryView { showingImporter = true }
                 } else {
                     shelfBar
@@ -264,38 +262,45 @@ struct LibraryView: View {
         }
     }
 
-    private var readingStatusGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 5), spacing: 6) {
-            statusFilterButton("All", status: nil)
+    private var filterMenu: some View {
+        Menu {
+            filterOption(.all)
             ForEach(ReadingStatus.allCases) { status in
-                statusFilterButton(status.label, status: status)
+                filterOption(.status(status))
             }
+            Divider()
+            filterOption(.wishlist)
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.title3)
+                .frame(width: 48, height: 48)
+                .foregroundStyle(model.filter == .all ? Color.primary : AppPalette.accent)
+                .modifier(LibraryControlSurface())
         }
-        .padding(.horizontal)
-        .padding(.top, 8)
-        .padding(.bottom, 6)
+        .menuOrder(.fixed)
+        .accessibilityLabel("Filter books")
+        .accessibilityValue(model.filter.label)
     }
 
-    private func statusFilterButton(_ title: String, status: ReadingStatus?) -> some View {
-        let selected = model.readingStatusFilter == status
-        return Button {
+    private func filterOption(_ filter: LibraryFilter) -> some View {
+        Button {
             searchFocused = false
-            model.readingStatusFilter = status
+            if filter == .wishlist && selecting { endSelecting() }
+            model.filter = filter
         } label: {
-            Text(title)
-                .font(.footnote.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .padding(.horizontal, 4)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .foregroundStyle(selected ? AppPalette.onAccent : AppPalette.text)
-                .background(selected ? AppPalette.accent : AppPalette.surface, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(selected ? .clear : AppPalette.border))
+            if model.filter == filter {
+                Label(filter.label, systemImage: "checkmark")
+            } else {
+                Text(filter.label)
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(status == nil ? "All Books" : "\(title) books")
-        .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityIdentifier("reading-filter-\(status?.rawValue ?? "all")")
+    }
+
+    private var sortSelection: Binding<LibrarySort> {
+        Binding(
+            get: { model.filter == .wishlist && model.sort == .recent ? .added : model.sort },
+            set: { model.sort = $0 }
+        )
     }
 
     private var librarySearch: some View {
@@ -320,9 +325,13 @@ struct LibraryView: View {
             .foregroundStyle(.primary)
             .modifier(LibraryControlSurface())
 
+            filterMenu
+
             Menu {
-                Picker("Sort By", selection: $model.sort) {
-                    ForEach(LibrarySort.allCases) { Text($0.label).tag($0) }
+                Picker("Sort By", selection: sortSelection) {
+                    ForEach(LibrarySort.allCases.filter { model.filter != .wishlist || $0 != .recent }) { sort in
+                        Text(model.filter == .wishlist && sort == .added ? "Recently Saved" : sort.label).tag(sort)
+                    }
                 }
             } label: {
                 Image(systemName: "arrow.up.arrow.down")
@@ -332,10 +341,10 @@ struct LibraryView: View {
                     .modifier(LibraryControlSurface())
             }
             .accessibilityLabel("Sort")
-            .disabled(model.books.isEmpty)
+            .disabled(model.filter != .wishlist && model.books.isEmpty)
         }
         .padding(.horizontal)
-        .padding(.top, 4)
+        .padding(.top, 8)
         .padding(.bottom, 10)
     }
 

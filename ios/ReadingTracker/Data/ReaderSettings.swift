@@ -41,7 +41,7 @@ struct ReaderSettings: Codable, Equatable {
     }
 
     enum Font: String, CaseIterable, Codable, Identifiable {
-        case original, serif, sans, newYork, georgia, palatino
+        case original, serif, sans, newYork, georgia, palatino, verdana, charter, baskerville
         var id: String { rawValue }
         var label: String {
             switch self {
@@ -51,6 +51,9 @@ struct ReaderSettings: Codable, Equatable {
             case .newYork:   "New York"
             case .georgia:   "Georgia"
             case .palatino:  "Palatino"
+            case .verdana:   "Verdana"
+            case .charter:   "Charter"
+            case .baskerville: "Baskerville"
             }
         }
     }
@@ -77,6 +80,9 @@ struct ReaderSettings: Codable, Equatable {
 
     static let fontSizeRange = 0.7 ... 2.0
     static let fontSizeStep = 0.1
+    static let readingSpeedStorageKey = "epub-reading-speed"
+    static let defaultReadingSpeed = 200
+    static let readingSpeedRange = 10 ... 1000
 
     /// The theme actually shown, resolving "Auto" against the system appearance.
     func resolvedTheme(systemDark: Bool) -> Theme {
@@ -97,6 +103,9 @@ struct ReaderSettings: Codable, Equatable {
                 case .newYork:   "New York"
                 case .georgia:   .georgia
                 case .palatino:  .palatino
+                case .verdana:   "Verdana"
+                case .charter:   "Charter"
+                case .baskerville: "Baskerville"
                 }
             }(),
             fontSize: fontSize,

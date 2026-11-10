@@ -11,9 +11,8 @@ struct ReaderScreen: View {
     private let initialReaction: BookReaction?
     private let onShowDetails: () -> Void
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.scenePhase) private var scenePhase
     @AppStorage(ReaderSettings.FooterDisplay.storageKey) private var footerDisplay: ReaderSettings.FooterDisplay = .location
-    @State private var isReaderVisible = false
+    @AppStorage(ReaderSettings.readingSpeedStorageKey) private var readingSpeed = ReaderSettings.defaultReadingSpeed
     @State private var sheet: Sheet?
     /// While dragging the slider, the position it would jump to.
     @State private var scrubbing: Double?
@@ -38,11 +37,6 @@ struct ReaderScreen: View {
     }
 
     private var palette: ReaderSettings.Palette { model.palette }
-
-    private var readingPaceActive: Bool {
-        isReaderVisible && scenePhase == .active && sheet == nil && model.editing == nil
-            && scrubbing == nil && !reactionJumpFailed && !reactionSaveFailed
-    }
 
     var body: some View {
         ZStack {
@@ -167,12 +161,6 @@ struct ReaderScreen: View {
             Button("OK", role: .cancel) {}
         }
         .onChange(of: colorScheme) { model.setSystemDark($0 == .dark) }
-        .onAppear { isReaderVisible = true }
-        .onDisappear {
-            isReaderVisible = false
-            model.setReadingPaceActive(false)
-        }
-        .onChange(of: readingPaceActive) { model.setReadingPaceActive($0) }
     }
 
     private var readerToolbar: some View {
@@ -360,8 +348,8 @@ struct ReaderScreen: View {
     private var footerLabel: String {
         switch footerDisplay {
         case .location: model.progressLabel
-        case .chapter: model.readingTimeLabel(inChapter: true)
-        case .book: model.readingTimeLabel(inChapter: false)
+        case .chapter: model.readingTimeLabel(inChapter: true, wordsPerMinute: readingSpeed)
+        case .book: model.readingTimeLabel(inChapter: false, wordsPerMinute: readingSpeed)
         }
     }
 

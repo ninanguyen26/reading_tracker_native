@@ -209,21 +209,31 @@ final class ShelfUITests: XCTestCase {
         XCTAssertTrue(epub.waitForExistence(timeout: 15))
         XCTAssertTrue(pdf.waitForExistence(timeout: 15))
 
-        let all = app.buttons["reading-filter-all"]
-        let tbr = app.buttons["reading-filter-tbr"]
-        let reading = app.buttons["reading-filter-reading"]
-        let finished = app.buttons["reading-filter-finished"]
-        let dnf = app.buttons["reading-filter-dnf"]
-        XCTAssertTrue(all.isSelected)
-        XCTAssertLessThan(all.frame.maxY, app.textFields["library-search"].frame.minY)
-        tbr.tap()
+        let filter = app.buttons["Filter books"]
+        XCTAssertEqual(filter.value as? String, "All Books")
+        XCTAssertLessThan(filter.frame.maxX, app.buttons["Sort"].frame.minX)
+        XCTAssertFalse(app.navigationBars["Library"].buttons["Wishlist"].exists)
+
+        func chooseFilter(_ title: String) {
+            filter.tap()
+            menuItem(title, in: app).tap()
+            XCTAssertEqual(filter.value as? String, title)
+        }
+
+        chooseFilter("Wishlist")
+        XCTAssertTrue(app.staticTexts["Your wishlist is empty"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Library"].exists)
+        XCTAssertFalse(epub.exists)
+        XCTAssertFalse(pdf.exists)
+
+        chooseFilter("TBR")
         XCTAssertTrue(epub.exists)
         XCTAssertTrue(pdf.exists)
 
         pdf.press(forDuration: 1)
         menuItem("Change Status", in: app).tap()
         menuItem("Reading", in: app).tap()
-        reading.tap()
+        chooseFilter("Reading")
         XCTAssertTrue(pdf.waitForExistence(timeout: 5))
         XCTAssertFalse(epub.exists)
 
@@ -237,21 +247,21 @@ final class ShelfUITests: XCTestCase {
         let didNotFinish = NSPredicate(format: "value == %@", "DNF")
         wait(for: [expectation(for: didNotFinish, evaluatedWith: status)], timeout: 5)
         app.navigationBars["Book Details"].buttons.firstMatch.tap()
-        dnf.tap()
+        chooseFilter("DNF")
         XCTAssertTrue(pdf.waitForExistence(timeout: 5))
         XCTAssertFalse(epub.exists)
 
-        all.tap()
+        chooseFilter("All Books")
         app.buttons["Select"].tap()
         app.buttons["Select All"].tap()
         app.buttons["Change Status"].tap()
         menuItem("Finished", in: app).tap()
-        finished.tap()
+        chooseFilter("Finished")
         XCTAssertTrue(epub.waitForExistence(timeout: 5))
         XCTAssertTrue(pdf.exists)
 
         let library = XCTAttachment(screenshot: app.screenshot())
-        library.name = "Library Reading Status Grid"
+        library.name = "Library Filtered by Reading Status"
         library.lifetime = .keepAlways
         add(library)
 

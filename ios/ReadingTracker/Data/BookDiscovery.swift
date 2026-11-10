@@ -1,6 +1,6 @@
 import Foundation
 
-struct DiscoveryBook: Decodable, Identifiable, Sendable {
+struct DiscoveryBook: Codable, Identifiable, Sendable {
     let id: Int
     let title: String
     let author: String

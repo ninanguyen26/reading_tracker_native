@@ -183,6 +183,13 @@ final class AppDatabase: Sendable {
                 t.column("createdAt", .datetime).notNull()
             }
         }
+        migrator.registerMigration("v19-wishlist") { db in
+            try db.create(table: "wishlist") { t in
+                t.primaryKey("id", .integer)
+                t.column("book", .blob).notNull()
+                t.column("savedAt", .datetime).notNull()
+            }
+        }
         return migrator
     }
 
@@ -284,6 +291,36 @@ final class AppDatabase: Sendable {
                 arguments: [ReadingStatus.reading, id, ReadingStatus.tbr]
             )
         }
+    }
+
+    // MARK: Wishlist
+
+    func isWishlisted(_ bookID: Int) async throws -> Bool {
+        try await writer.read { db in
+            try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM wishlist WHERE id = ?)", arguments: [bookID]) ?? false
+        }
+    }
+
+    func setWishlisted(_ book: DiscoveryBook, saved: Bool) async throws {
+        try await writer.write { db in
+            if saved {
+                let data = try JSONEncoder().encode(book)
+                try db.execute(
+                    sql: "INSERT INTO wishlist (id, book, savedAt) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING",
+                    arguments: [book.id, data, Date()]
+                )
+            } else {
+                try db.execute(sql: "DELETE FROM wishlist WHERE id = ?", arguments: [book.id])
+            }
+        }
+    }
+
+    func observeWishlist() -> AsyncValueObservation<[DiscoveryBook]> {
+        ValueObservation.tracking { db in
+            let books = try Data.fetchAll(db, sql: "SELECT book FROM wishlist ORDER BY savedAt DESC, id DESC")
+            let decoder = JSONDecoder()
+            return try books.map { try decoder.decode(DiscoveryBook.self, from: $0) }
+        }.values(in: writer)
     }
 
     // MARK: Bookmarks

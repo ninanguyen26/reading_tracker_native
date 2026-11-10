@@ -6,8 +6,10 @@ struct ReaderSettingsSheet: View {
     let format: BookFormat
     @Environment(\.dismiss) private var dismiss
     @AppStorage(ReaderSettings.FooterDisplay.storageKey) private var footerDisplay: ReaderSettings.FooterDisplay = .location
+    @AppStorage(ReaderSettings.readingSpeedStorageKey) private var readingSpeed = ReaderSettings.defaultReadingSpeed
 
     private var isPDF: Bool { format == .pdf }
+    private let readingSpeedStep = 10
 
     var body: some View {
         NavigationStack {
@@ -51,9 +53,7 @@ struct ReaderSettingsSheet: View {
                         .buttonStyle(.borderless)
                         .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
 
-                        Picker("Font", selection: $settings.font) {
-                            ForEach(ReaderSettings.Font.allCases) { Text($0.label).tag($0) }
-                        }
+                        fontPicker
                         Picker("Line Spacing", selection: $settings.spacing) {
                             ForEach(ReaderSettings.Spacing.allCases) { Text($0.label).tag($0) }
                         }
@@ -90,6 +90,15 @@ struct ReaderSettingsSheet: View {
                     }
                 }
                 .listRowBackground(AppPalette.surface)
+
+                if !isPDF {
+                    Section {
+                        readingSpeedControl
+                    } footer: {
+                        Text("This speed is used for chapter and book estimates. To find yours, read at your usual pace for one minute using a stopwatch, then count the words you read.")
+                    }
+                    .listRowBackground(AppPalette.surface)
+                }
             }
             .scrollContentBackground(.hidden)
             .background(AppPalette.background)
@@ -104,6 +113,109 @@ struct ReaderSettingsSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private var readingSpeedControl: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Reading speed")
+                Text("\(readingSpeed) words per minute")
+                    .font(.subheadline)
+                    .foregroundStyle(AppPalette.secondaryText)
+                    .accessibilityIdentifier("reading-speed-value")
+            }
+            Spacer(minLength: 8)
+            Button {
+                readingSpeed = max(ReaderSettings.readingSpeedRange.lowerBound, readingSpeed - readingSpeedStep)
+            } label: {
+                Image(systemName: "minus").frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .disabled(readingSpeed <= ReaderSettings.readingSpeedRange.lowerBound)
+            .accessibilityLabel("Decrease reading speed")
+
+            Button {
+                readingSpeed = min(ReaderSettings.readingSpeedRange.upperBound, readingSpeed + readingSpeedStep)
+            } label: {
+                Image(systemName: "plus").frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .disabled(readingSpeed >= ReaderSettings.readingSpeedRange.upperBound)
+            .accessibilityLabel("Increase reading speed")
+        }
+        .buttonStyle(.borderless)
+    }
+
+    private var fontPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Font")
+                .accessibilityAddTraits(.isHeader)
+
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(ReaderSettings.Font.allCases) { font in
+                            FontSample(font: font, selected: settings.font == font) {
+                                settings.font = font
+                            }
+                            .id(font)
+                        }
+                    }
+                    .padding(.bottom, 6)
+                }
+                .accessibilityIdentifier("reader-font-options")
+                .onAppear { proxy.scrollTo(settings.font, anchor: .center) }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct FontSample: View {
+    let font: ReaderSettings.Font
+    let selected: Bool
+    let action: () -> Void
+
+    private var sampleFont: Font {
+        switch font {
+        case .original: .subheadline
+        case .serif: .custom("IowanOldStyle-Roman", size: 20, relativeTo: .title3)
+        case .sans: .title3
+        case .newYork: .system(.title3, design: .serif)
+        case .georgia: .custom("Georgia", size: 20, relativeTo: .title3)
+        case .palatino: .custom("Palatino-Roman", size: 20, relativeTo: .title3)
+        case .verdana: .custom("Verdana", size: 20, relativeTo: .title3)
+        case .charter: .custom("Charter-Roman", size: 20, relativeTo: .title3)
+        case .baskerville: .custom("Baskerville", size: 20, relativeTo: .title3)
+        }
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text(font.label)
+                    Image(systemName: "checkmark")
+                        .opacity(selected ? 1 : 0)
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppPalette.secondaryText)
+
+                Text(font == .original ? "Book’s own font" : "The next page")
+                    .font(sampleFont)
+                    .foregroundStyle(AppPalette.text)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(minWidth: 136, alignment: .leading)
+            .background(AppPalette.secondarySurface, in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(selected ? AppPalette.accent : AppPalette.border, lineWidth: selected ? 2 : 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(font.label)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

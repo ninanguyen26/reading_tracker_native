@@ -1,13 +1,25 @@
 import Foundation
 import SwiftUI
 
+enum LibraryFilter: Equatable {
+    case all, status(ReadingStatus), wishlist
+
+    var label: String {
+        switch self {
+        case .all: "All Books"
+        case .status(let status): status.label
+        case .wishlist: "Wishlist"
+        }
+    }
+}
+
 /// State for the library screen: the book list, shelves, search, sort, and imports.
 @MainActor
 final class LibraryModel: ObservableObject {
     @Published private(set) var books: [Book] = []
     @Published private(set) var loaded = false
     @Published var query = ""
-    @Published var readingStatusFilter: ReadingStatus?
+    @Published var filter: LibraryFilter = .all
     @Published var sort: LibrarySort {
         didSet { UserDefaults.standard.set(sort.rawValue, forKey: Self.sortKey) }
     }
@@ -61,6 +73,11 @@ final class LibraryModel: ObservableObject {
 
     var booksOnActiveShelf: [Book] {
         shelfList.books(books, on: activeShelf?.id)
+    }
+
+    var readingStatusFilter: ReadingStatus? {
+        if case .status(let status) = filter { return status }
+        return nil
     }
 
     var visibleBooks: [Book] {

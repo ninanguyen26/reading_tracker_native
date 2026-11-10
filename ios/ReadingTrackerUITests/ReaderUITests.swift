@@ -49,6 +49,16 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Library"].waitForExistence(timeout: 5))
     }
 
+    private func filterLibrary(_ title: String, in app: XCUIApplication) {
+        app.buttons["Filter books"].tap()
+        let option = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label == %@ AND (elementType == %d OR elementType == %d)",
+                        title, XCUIElement.ElementType.menuItem.rawValue, XCUIElement.ElementType.button.rawValue)
+        ).firstMatch
+        XCTAssertTrue(option.waitForExistence(timeout: 5))
+        option.tap()
+    }
+
     func testLibraryShowsImportedBooks() {
         let app = launch(fresh: true)
         XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 15))
@@ -250,11 +260,15 @@ final class ReaderUITests: XCTestCase {
         let location = waitForProgress(in: app, matching: "Location 1 of .*", timeout: 30)
         let footer = app.buttons["reader-progress"]
         footer.tap()
-        waitForProgress(in: app, matching: "Learning chapter time…")
+        let initialChapter = waitForProgress(in: app, matching: "About .* left in chapter")
         footer.tap()
-        waitForProgress(in: app, matching: "Learning book time…")
+        let initialBook = waitForProgress(in: app, matching: "About .* left in book")
 
-        showToolbar(in: app)
+        if !app.buttons["Contents and Bookmarks"].exists {
+            app.otherElements["reader-content"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        let options = app.buttons["Reader Options"]
+        if options.exists { options.tap() }
         app.buttons["Reading Settings"].tap()
         XCTAssertTrue(app.navigationBars["Reading Settings"].waitForExistence(timeout: 5))
         let picker = app.buttons["footer-display"]
@@ -263,11 +277,19 @@ final class ReaderUITests: XCTestCase {
         XCTAssertEqual(picker.value as? String, "Time left in book")
         picker.tap()
         app.buttons["Time left in chapter"].tap()
+
+        let increaseSpeed = app.buttons["Increase reading speed"]
+        revealInSheet(increaseSpeed, in: app)
+        XCTAssertTrue(app.staticTexts["reading-speed-value"].label.contains("200"))
+        for _ in 0..<5 { increaseSpeed.tap() }
+        XCTAssertTrue(app.staticTexts["reading-speed-value"].label.contains("250"))
         app.buttons["Done"].tap()
-        waitForProgress(in: app, matching: "Learning chapter time…")
+        let fasterChapter = waitForProgress(in: app, matching: "About .* left in chapter")
+        XCTAssertNotEqual(fasterChapter, initialChapter)
 
         footer.tap()
-        waitForProgress(in: app, matching: "Learning book time…")
+        let fasterBook = waitForProgress(in: app, matching: "About .* left in book")
+        XCTAssertNotEqual(fasterBook, initialBook)
         footer.tap()
         XCTAssertEqual(footer.label, location)
     }
@@ -287,7 +309,7 @@ final class ReaderUITests: XCTestCase {
 
         goBack(in: app)
         XCTAssertFalse(book(epubTitle, in: app).label.contains("New"), "The library shows progress after reading")
-        app.buttons["reading-filter-reading"].tap()
+        filterLibrary("Reading", in: app)
         XCTAssertTrue(book(epubTitle, in: app).exists)
 
         // Reopen after quitting the app.
@@ -304,7 +326,7 @@ final class ReaderUITests: XCTestCase {
         book(pdfTitle, in: app).tap()
         waitForProgress(in: app, matching: "Page 1 of 6 · 0%")
         goBack(in: app)
-        app.buttons["reading-filter-tbr"].tap()
+        filterLibrary("TBR", in: app)
         XCTAssertTrue(book(pdfTitle, in: app).exists)
         book(pdfTitle, in: app).tap()
         waitForProgress(in: app, matching: "Page 1 of 6 · 0%")
@@ -317,7 +339,7 @@ final class ReaderUITests: XCTestCase {
         app.otherElements["reader-content"].coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5)).tap()
         waitForProgress(in: app, matching: "Page 1 of 6 · 0%")
         goBack(in: app)
-        app.buttons["reading-filter-reading"].tap()
+        filterLibrary("Reading", in: app)
         XCTAssertTrue(book(pdfTitle, in: app).exists)
     }
 
@@ -344,7 +366,7 @@ final class ReaderUITests: XCTestCase {
         let moved = NSPredicate(format: "label != %@", before)
         wait(for: [expectation(for: moved, evaluatedWith: progress(in: app))], timeout: 10)
         goBack(in: app)
-        app.buttons["reading-filter-reading"].tap()
+        filterLibrary("Reading", in: app)
         XCTAssertTrue(book(epubTitle, in: app).exists)
 
         // Settings are kept after quitting.
@@ -359,6 +381,33 @@ final class ReaderUITests: XCTestCase {
         XCTAssertEqual(app.staticTexts["font-size"].label, "110%")
         revealInSheet(app.buttons["Scroll"], in: app)
         XCTAssertTrue(app.buttons["Scroll"].isSelected)
+    }
+
+    func testFontSamplesScrollAndPersist() {
+        var app = launch(fresh: true)
+        app.buttons["tab-settings"].tap()
+        app.buttons["Reading Preferences"].tap()
+
+        let fontOptions = app.scrollViews["reader-font-options"]
+        revealInSheet(fontOptions.buttons["Original"], in: app)
+        XCTAssertTrue(fontOptions.buttons["Original"].isSelected)
+        captureDetails("Font samples", in: app)
+        let baskerville = fontOptions.buttons["Baskerville"]
+        for _ in 0..<5 where !baskerville.isHittable { fontOptions.swipeLeft() }
+        XCTAssertTrue(baskerville.isHittable)
+        baskerville.tap()
+        XCTAssertTrue(baskerville.isSelected)
+        captureDetails("Selected font sample", in: app)
+
+        app.buttons["Done"].tap()
+        app.terminate()
+        app = launch(fresh: false)
+        app.buttons["tab-settings"].tap()
+        app.buttons["Reading Preferences"].tap()
+
+        let savedFont = app.scrollViews["reader-font-options"].buttons["Baskerville"]
+        revealInSheet(savedFont, in: app)
+        XCTAssertTrue(savedFont.isSelected)
     }
 
     /// The settings sheet opens at half height; scroll it until the control is reachable.

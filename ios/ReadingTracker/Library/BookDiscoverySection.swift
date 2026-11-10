@@ -274,11 +274,120 @@ private struct DiscoverySeriesSheet: View {
     }
 }
 
+struct WishlistView: View {
+    let columns: [GridItem]
+    let query: String
+    let sort: LibrarySort
+
+    @EnvironmentObject private var environment: AppEnvironment
+    @State private var books: [DiscoveryBook]?
+    @State private var selectedBook: DiscoveryBook?
+    @State private var loadFailed = false
+    @State private var retry = false
+
+    var body: some View {
+        Group {
+            if loadFailed {
+                VStack(spacing: 12) {
+                    Text("Couldn’t load your wishlist.")
+                    Button("Try Again") { retry.toggle() }
+                        .buttonStyle(DetailsActionStyle())
+                }
+            } else if let books {
+                if books.isEmpty {
+                    VStack(spacing: 12) {
+                        Label("Your wishlist is empty", systemImage: "bookmark")
+                            .font(.headline)
+                        Text("Save a book from Book Preview to find it here later.")
+                            .foregroundStyle(AppPalette.secondaryText)
+                    }
+                    .multilineTextAlignment(.center)
+                    .padding()
+                } else {
+                    let matches = visibleBooks(in: books)
+                    ScrollView {
+                        if matches.isEmpty {
+                            Text("No books match “\(query)”.")
+                                .foregroundStyle(AppPalette.secondaryText)
+                                .padding(.top, 40)
+                        }
+                        LazyVGrid(columns: columns, spacing: 28) {
+                            ForEach(matches) { book in
+                                Button { selectedBook = book } label: {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        DiscoveryCover(book: book)
+                                        Text(book.title)
+                                            .font(.subheadline.weight(.medium))
+                                            .lineLimit(2)
+                                        if !book.author.isEmpty {
+                                            Text(book.author)
+                                                .font(.caption)
+                                                .foregroundStyle(AppPalette.secondaryText)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                    .multilineTextAlignment(.leading)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal)
+                        .padding(.bottom, 24)
+                    }
+                    .scrollDismissesKeyboard(.interactively)
+                }
+            } else {
+                ProgressView()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(item: $selectedBook) { book in
+            DiscoveryBookPreview(book: book)
+        }
+        .task(id: retry) {
+            loadFailed = false
+            do {
+                for try await savedBooks in environment.database.observeWishlist() {
+                    books = savedBooks
+                }
+            } catch {
+                if !Task.isCancelled { loadFailed = true }
+            }
+        }
+    }
+
+    private func visibleBooks(in books: [DiscoveryBook]) -> [DiscoveryBook] {
+        let search = query.trimmingCharacters(in: .whitespaces)
+        let matches = search.isEmpty ? books : books.filter {
+            $0.title.localizedCaseInsensitiveContains(search) || $0.author.localizedCaseInsensitiveContains(search)
+        }
+        switch sort {
+        case .recent, .added:
+            return matches
+        case .title:
+            return matches.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        case .author:
+            return matches.sorted {
+                let comparison = $0.author.localizedStandardCompare($1.author)
+                if comparison == .orderedSame {
+                    return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+                }
+                return comparison == .orderedAscending
+            }
+        }
+    }
+}
+
 private struct DiscoveryBookPreview: View {
     let book: DiscoveryBook
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var environment: AppEnvironment
     @State private var metadata: DiscoveryPreviewMetadata?
     @State private var fallbackSynopsis: String?
+    @State private var isSaved: Bool?
+    @State private var updatingWishlist = false
+    @State private var wishlistError: String?
 
     private var synopsis: String? { fallbackSynopsis ?? BookDetailsText.previewSynopsis(book.description) }
     private var language: String? {
@@ -294,6 +403,7 @@ private struct DiscoveryBookPreview: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(book.title).font(.title3.weight(.semibold))
                             if !book.author.isEmpty { Text(book.author).foregroundStyle(AppPalette.secondaryText) }
+                            wishlistButton
                         }
                     }
                     if let synopsis {
@@ -335,7 +445,16 @@ private struct DiscoveryBookPreview: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
+            .alert("Wishlist", isPresented: Binding(
+                get: { wishlistError != nil },
+                set: { if !$0 { wishlistError = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(wishlistError ?? "")
+            }
         }
+        .task { await updateWishlist() }
         .task(id: book.id) {
             let fetched = try? await BookDiscoveryClient.preview(for: book.id)
             guard !Task.isCancelled else { return }
@@ -343,6 +462,38 @@ private struct DiscoveryBookPreview: View {
             if synopsis == nil, let language {
                 let fallback = try? await OpenLibraryClient.shared.previewSynopsis(for: book, language: language)
                 if !Task.isCancelled { fallbackSynopsis = fallback }
+            }
+        }
+    }
+
+    private var wishlistButton: some View {
+        Button {
+            Task { await updateWishlist(saved: isSaved.map { !$0 }) }
+        } label: {
+            Label(isSaved == true ? "Saved" : "Save to Wishlist",
+                  systemImage: isSaved == true ? "bookmark.fill" : "bookmark")
+                .multilineTextAlignment(.leading)
+                .padding(.vertical, 4)
+        }
+        .buttonStyle(DetailsActionStyle())
+        .disabled(updatingWishlist)
+        .accessibilityHint(isSaved == true ? "Removes this book from your wishlist" : "Adds this book to your wishlist")
+    }
+
+    private func updateWishlist(saved: Bool? = nil) async {
+        guard !updatingWishlist else { return }
+        updatingWishlist = true
+        defer { updatingWishlist = false }
+        do {
+            if let saved {
+                try await environment.database.setWishlisted(book, saved: saved)
+                isSaved = saved
+            } else {
+                isSaved = try await environment.database.isWishlisted(book.id)
+            }
+        } catch {
+            if !Task.isCancelled {
+                wishlistError = saved == nil ? "Couldn’t check if this book is saved." : "Couldn’t update your wishlist."
             }
         }
     }
