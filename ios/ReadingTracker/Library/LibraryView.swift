@@ -248,7 +248,9 @@ struct LibraryView: View {
                         Text("Your next chapter is waiting.")
                             .foregroundStyle(AppPalette.secondaryText)
                         LazyVGrid(columns: columns, spacing: 28) {
-                            ForEach(Array(model.books.sorted(by: .recent).prefix(4))) { book in bookLink(book) }
+                            ForEach(Array(model.books.sorted(by: .recent).prefix(4))) { book in
+                                bookLink(book, usesLibraryLayout: false)
+                            }
                         }
                     }
                     .padding()
@@ -510,9 +512,9 @@ struct LibraryView: View {
         .contentShape(Rectangle())
     }
 
-    private func bookLink(_ book: Book) -> some View {
+    private func bookLink(_ book: Book, usesLibraryLayout: Bool = true) -> some View {
         NavigationLink(value: Route.reader(book.id)) {
-            BookCell(book: book, coverURL: model.coverURL(for: book))
+            BookCell(book: book, coverURL: model.coverURL(for: book), usesLibraryLayout: usesLibraryLayout)
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -600,25 +602,41 @@ private struct LibraryControlSurface: ViewModifier {
 private struct BookCell: View {
     let book: Book
     let coverURL: URL?
+    var usesLibraryLayout = true
     /// Set while selecting books: whether this one is selected.
     var selected: Bool?
 
-    private var progressLabel: String {
+    private var progress: Double { min(1, max(0, book.progression)) }
+
+    private var progressPercentage: String {
+        progress.formatted(.percent.precision(.fractionLength(0)))
+    }
+
+    private var homeProgressLabel: String {
         if book.progression == 0 && book.readingStatus == .tbr { return "New" }
-        return book.progression.formatted(.percent.precision(.fractionLength(0)))
+        return progressPercentage
+    }
+
+    private var bookAccessibilityLabel: String {
+        let name = "\(book.title), by \(book.author)"
+        guard usesLibraryLayout else { return "\(name), \(homeProgressLabel)" }
+        let rating = book.personalRatingQuarterStars.map { "\(personalRatingNumber($0)) out of 5 stars" } ?? "Unrated"
+        return "\(name), \(rating), \(progressPercentage) read"
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            BookCoverView(book: book, coverURL: coverURL)
+            BookCoverView(book: book, coverURL: coverURL, showsPlaceholderTitle: !usesLibraryLayout)
                 .overlay(alignment: .topLeading) {
-                    Text(book.format.label)
-                        .font(.system(size: 9, weight: .bold))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 3))
-                        .foregroundStyle(.white)
-                        .padding(6)
+                    if !usesLibraryLayout {
+                        Text(book.format.label)
+                            .font(.system(size: 9, weight: .bold))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 3))
+                            .foregroundStyle(.white)
+                            .padding(6)
+                    }
                 }
                 .overlay(alignment: .topTrailing) {
                     if let selected {
@@ -629,27 +647,55 @@ private struct BookCell: View {
                             .padding(6)
                     }
                 }
-            Text(book.title)
-                .font(.subheadline.weight(.medium))
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-            Text(book.author)
-                .font(.caption)
-                .foregroundStyle(AppPalette.secondaryText)
-                .lineLimit(1)
-            HStack(spacing: 6) {
-                ProgressView(value: book.progression)
-                    .tint(AppPalette.accent)
-                Text(progressLabel)
-                    .font(.caption2.monospacedDigit())
+            if usesLibraryLayout {
+                HStack(spacing: 6) {
+                    PersonalRatingStars(quarterStars: book.personalRatingQuarterStars ?? 0)
+                        .font(.system(size: 13))
+                    Spacer(minLength: 0)
+                    progressBadge
+                }
+            } else {
+                Text(book.title)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Text(book.author)
+                    .font(.caption)
                     .foregroundStyle(AppPalette.secondaryText)
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    ProgressView(value: book.progression)
+                        .tint(AppPalette.accent)
+                    Text(homeProgressLabel)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(AppPalette.secondaryText)
+                }
             }
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(book.title), by \(book.author), \(progressLabel)")
+        .accessibilityLabel(bookAccessibilityLabel)
         .accessibilityAddTraits(selected == true ? [.isButton, .isSelected] : .isButton)
         .accessibilityIdentifier("book-\(book.title)")
+    }
+
+    private var progressBadge: some View {
+        let diameter: CGFloat = 38
+        return Circle()
+            .fill(AppPalette.secondarySurface)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(AppPalette.accent.opacity(0.32))
+                    .frame(height: diameter * progress)
+            }
+            .clipShape(Circle())
+            .overlay(Circle().strokeBorder(AppPalette.accent.opacity(0.55)))
+            .overlay {
+                Text(progressPercentage)
+                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(AppPalette.text)
+            }
+            .frame(width: diameter, height: diameter)
     }
 }
 

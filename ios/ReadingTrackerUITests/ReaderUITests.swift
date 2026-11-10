@@ -64,7 +64,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 15))
         XCTAssertTrue(book(pdfTitle, in: app).exists)
         XCTAssertTrue(book(epubTitle, in: app).label.contains("by Avery Quinn"))
-        XCTAssertTrue(book(epubTitle, in: app).label.contains("New"))
+        XCTAssertTrue(book(epubTitle, in: app).label.contains("Unrated, 0% read"))
     }
 
     func testMainNavigationSearchAndAddBooks() {
@@ -308,7 +308,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertGreaterThan(percent(afterTurning), percent(start))
 
         goBack(in: app)
-        XCTAssertFalse(book(epubTitle, in: app).label.contains("New"), "The library shows progress after reading")
+        XCTAssertTrue(book(epubTitle, in: app).label.hasSuffix("\(percent(afterTurning))% read"))
         filterLibrary("Reading", in: app)
         XCTAssertTrue(book(epubTitle, in: app).exists)
 

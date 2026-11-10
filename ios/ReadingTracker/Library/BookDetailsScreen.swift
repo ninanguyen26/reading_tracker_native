@@ -748,7 +748,7 @@ private struct PersonalRatingEditor: View {
     }
 }
 
-private struct PersonalRatingStars: View {
+struct PersonalRatingStars: View {
     let quarterStars: Int
     var starWidth: CGFloat? = nil
 
@@ -774,7 +774,7 @@ private struct PersonalRatingStars: View {
     }
 }
 
-private func personalRatingNumber(_ quarterStars: Int) -> String {
+func personalRatingNumber(_ quarterStars: Int) -> String {
     (Double(quarterStars) / 4).formatted(.number.precision(.fractionLength(0...2)))
 }
 
