@@ -208,7 +208,7 @@ struct LibraryView: View {
                 librarySearch
                 if model.filter == .wishlist {
                     importStatus
-                    WishlistView(columns: columns, query: model.query, sort: model.sort)
+                    WishlistView(query: model.query, sort: model.sort)
                 } else if model.loaded && model.books.isEmpty {
                     EmptyLibraryView { showingImporter = true }
                 } else {

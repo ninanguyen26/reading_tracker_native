@@ -275,7 +275,6 @@ private struct DiscoverySeriesSheet: View {
 }
 
 struct WishlistView: View {
-    let columns: [GridItem]
     let query: String
     let sort: LibrarySort
 
@@ -284,6 +283,8 @@ struct WishlistView: View {
     @State private var selectedBook: DiscoveryBook?
     @State private var loadFailed = false
     @State private var retry = false
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
 
     var body: some View {
         Group {
@@ -311,25 +312,14 @@ struct WishlistView: View {
                                 .foregroundStyle(AppPalette.secondaryText)
                                 .padding(.top, 40)
                         }
-                        LazyVGrid(columns: columns, spacing: 28) {
+                        LazyVGrid(columns: columns, spacing: 12) {
                             ForEach(matches) { book in
                                 Button { selectedBook = book } label: {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        DiscoveryCover(book: book)
-                                        Text(book.title)
-                                            .font(.subheadline.weight(.medium))
-                                            .lineLimit(2)
-                                        if !book.author.isEmpty {
-                                            Text(book.author)
-                                                .font(.caption)
-                                                .foregroundStyle(AppPalette.secondaryText)
-                                                .lineLimit(1)
-                                        }
-                                    }
-                                    .multilineTextAlignment(.leading)
-                                    .contentShape(Rectangle())
+                                    DiscoveryCover(book: book, showsPlaceholderTitle: false)
+                                        .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityLabel(book.author.isEmpty ? book.title : "\(book.title), by \(book.author)")
                             }
                         }
                         .padding(.horizontal)
