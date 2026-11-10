@@ -22,7 +22,7 @@ final class ReaderUITests: XCTestCase {
     }
 
     private func progress(in app: XCUIApplication) -> XCUIElement {
-        app.staticTexts["reader-progress"]
+        app.descendants(matching: .any)["reader-progress"].firstMatch
     }
 
     /// Waits until the reader's progress line matches the given pattern, returning its text.
@@ -230,7 +230,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(details.waitForExistence(timeout: 5))
         XCTAssertTrue(continueReading.isHittable)
         continueReading.tap()
-        XCTAssertTrue(app.navigationBars[pdfTitle].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["reader-title"].waitForExistence(timeout: 5))
         waitForProgress(in: app, matching: NSRegularExpression.escapedPattern(for: page))
     }
 
@@ -239,6 +239,22 @@ final class ReaderUITests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    func testEpubFooterCyclesThroughChapterBookAndLocation() {
+        let app = launch(fresh: true)
+        let sample = book(epubTitle, in: app)
+        XCTAssertTrue(sample.waitForExistence(timeout: 15))
+        sample.tap()
+
+        let location = waitForProgress(in: app, matching: "Location 1 of .*")
+        let footer = app.buttons["reader-progress"]
+        footer.tap()
+        waitForProgress(in: app, matching: "Learning chapter time…")
+        footer.tap()
+        waitForProgress(in: app, matching: "Learning book time…")
+        footer.tap()
+        XCTAssertEqual(footer.label, location)
     }
 
     func testReadsAnEpubAndRemembersThePosition() {
@@ -280,9 +296,9 @@ final class ReaderUITests: XCTestCase {
         turnPage(in: app)
         waitForProgress(in: app, matching: "Page 2 of 6 · \\d+%")
         // Turning the page hides the toolbar; a tap in the middle brings it back.
-        XCTAssertTrue(app.navigationBars[pdfTitle].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["reader-title"].waitForNonExistence(timeout: 5))
         app.otherElements["reader-content"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        XCTAssertTrue(app.navigationBars[pdfTitle].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["reader-title"].waitForExistence(timeout: 5))
         app.otherElements["reader-content"].coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5)).tap()
         waitForProgress(in: app, matching: "Page 1 of 6 · 0%")
         goBack(in: app)
@@ -350,11 +366,12 @@ final class ReaderUITests: XCTestCase {
         book(epubTitle, in: app).tap()
         waitForProgress(in: app, matching: "Location 1 of .*")
         // Books open full-screen; a tap in the middle shows the toolbar, another hides it.
-        let bar = app.navigationBars[epubTitle]
-        XCTAssertFalse(bar.exists)
+        let title = app.staticTexts["reader-title"]
+        XCTAssertFalse(title.exists)
         app.otherElements["reader-content"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        XCTAssertTrue(bar.waitForExistence(timeout: 5))
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        XCTAssertEqual(title.label, epubTitle)
         app.otherElements["reader-content"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        XCTAssertTrue(bar.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(title.waitForNonExistence(timeout: 5))
     }
 }

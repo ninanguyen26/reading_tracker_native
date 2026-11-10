@@ -13,7 +13,7 @@ final class NavigationUITests: XCTestCase {
         let book = app.descendants(matching: .any)["book-\(title)"].firstMatch
         XCTAssertTrue(book.waitForExistence(timeout: 15))
         book.tap()
-        XCTAssertTrue(app.staticTexts["reader-progress"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.descendants(matching: .any)["reader-progress"].firstMatch.waitForExistence(timeout: 15))
         return app
     }
 

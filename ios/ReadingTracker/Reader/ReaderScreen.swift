@@ -2,7 +2,8 @@ import ReadiumShared
 import SwiftUI
 import UIKit
 
-private let readerToolbarIconSize: CGFloat = 15
+private let readerToolbarIconSize: CGFloat = 20
+private let readerToolbarButtonWidth: CGFloat = 44
 
 struct ReaderScreen: View {
     @StateObject private var model: ReaderModel
@@ -10,6 +11,9 @@ struct ReaderScreen: View {
     private let initialReaction: BookReaction?
     private let onShowDetails: () -> Void
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("epub-reader-footer") private var footerMode = FooterMode.location
+    @State private var isReaderVisible = false
     @State private var sheet: Sheet?
     /// While dragging the slider, the position it would jump to.
     @State private var scrubbing: Double?
@@ -25,6 +29,18 @@ struct ReaderScreen: View {
         var id: Self { self }
     }
 
+    private enum FooterMode: String {
+        case location, chapter, book
+
+        var next: Self {
+            switch self {
+            case .location: .chapter
+            case .chapter: .book
+            case .book: .location
+            }
+        }
+    }
+
     init(book: Book, environment: AppEnvironment, initialReaction: BookReaction?, reactionJump: Binding<BookReaction?>,
          onShowDetails: @escaping () -> Void) {
         _model = StateObject(wrappedValue: ReaderModel(book: book, environment: environment))
@@ -34,6 +50,11 @@ struct ReaderScreen: View {
     }
 
     private var palette: ReaderSettings.Palette { model.palette }
+
+    private var readingPaceActive: Bool {
+        isReaderVisible && scenePhase == .active && sheet == nil && model.editing == nil
+            && scrubbing == nil && !reactionJumpFailed && !reactionSaveFailed
+    }
 
     var body: some View {
         ZStack {
@@ -59,21 +80,26 @@ struct ReaderScreen: View {
             }
         }
         .overlay(alignment: .top) {
-            // The navigation bar is translucent; a frosted band behind it keeps
-            // the title readable over the page.
-            if model.chromeVisible {
-                Color.clear
-                    .frame(height: 0)
-                    .background(.bar, ignoresSafeAreaEdges: .top)
-                    .transition(.opacity)
-            }
-        }
-        .overlay(alignment: .top) {
-            // After opening a search result, a chip leads back to the results.
-            if model.search.selected != nil && sheet == nil {
-                searchChip
-                    .padding(.top, model.chromeVisible ? 8 : 4)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+            VStack(spacing: 0) {
+                if model.chromeVisible {
+                    Text(model.book.title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity)
+                        .background(.bar, ignoresSafeAreaEdges: .top)
+                        .environment(\.colorScheme, palette.isDark ? .dark : .light)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("reader-title")
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+                if model.search.selected != nil && sheet == nil {
+                    searchChip
+                        .padding(.top, model.chromeVisible ? 8 : 4)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
         }
         .overlay(alignment: .bottom) {
@@ -97,42 +123,11 @@ struct ReaderScreen: View {
         .onGeometryChange(for: Bool.self) { geometry in
             geometry.size.width < 390
         } action: { compactToolbar = $0 }
-        .navigationTitle(model.book.title)
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                if compactToolbar {
-                    Menu {
-                        detailsButton
-                        settingsButton
-                    } label: {
-                        toolbarLabel("Reader Options", systemImage: "ellipsis")
-                    }
-                } else {
-                    detailsButton
-                }
-                Button { sheet = .search } label: {
-                    toolbarLabel("Search", systemImage: "magnifyingglass")
-                }
-                .disabled(!model.isSearchable)
-                Button { sheet = .navigation } label: {
-                    toolbarLabel("Contents and Bookmarks", systemImage: "list.bullet")
-                }
-                if !compactToolbar {
-                    settingsButton
-                }
-            }
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 0) {
-                    bookmarkButton
-                    ReactionToolbarButton(
-                        isEnabled: model.locator != nil,
-                        onOpen: openReactionPicker,
-                        onQuickPick: saveQuickReaction
-                    )
-                    .frame(width: 44, height: 44)
-                }
-                .fixedSize()
+                readerToolbar
             }
         }
         .toolbar(model.chromeVisible ? .visible : .hidden, for: .navigationBar)
@@ -184,6 +179,49 @@ struct ReaderScreen: View {
             Button("OK", role: .cancel) {}
         }
         .onChange(of: colorScheme) { model.setSystemDark($0 == .dark) }
+        .onAppear { isReaderVisible = true }
+        .onDisappear {
+            isReaderVisible = false
+            model.setReadingPaceActive(false)
+        }
+        .onChange(of: readingPaceActive) { model.setReadingPaceActive($0) }
+    }
+
+    private var readerToolbar: some View {
+        HStack(spacing: 0) {
+            if compactToolbar {
+                Menu {
+                    detailsButton
+                        .labelStyle(.titleAndIcon)
+                    settingsButton
+                        .labelStyle(.titleAndIcon)
+                } label: {
+                    toolbarLabel("Reader Options", systemImage: "ellipsis")
+                }
+            } else {
+                detailsButton
+            }
+            Button { sheet = .search } label: {
+                toolbarLabel("Search", systemImage: "magnifyingglass")
+            }
+            .disabled(!model.isSearchable)
+            Button { sheet = .navigation } label: {
+                toolbarLabel("Contents and Bookmarks", systemImage: "list.bullet")
+            }
+            if !compactToolbar {
+                settingsButton
+            }
+            bookmarkButton
+            ReactionToolbarButton(
+                isEnabled: model.locator != nil,
+                onOpen: openReactionPicker,
+                onQuickPick: saveQuickReaction
+            )
+            .frame(width: readerToolbarButtonWidth, height: 44)
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.plain)
+        .fixedSize()
     }
 
     private var detailsButton: some View {
@@ -204,6 +242,8 @@ struct ReaderScreen: View {
         } icon: {
             Image(systemName: systemImage)
                 .font(.system(size: readerToolbarIconSize))
+                .frame(width: readerToolbarButtonWidth, height: 44)
+                .contentShape(Rectangle())
         }
     }
 
@@ -212,7 +252,7 @@ struct ReaderScreen: View {
         return Button { model.toggleBookmark() } label: {
             Image(systemName: bookmarked ? "bookmark.fill" : "bookmark")
                 .font(.system(size: readerToolbarIconSize))
-                .frame(width: 44, height: 44)
+                .frame(width: readerToolbarButtonWidth, height: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -278,9 +318,12 @@ struct ReaderScreen: View {
             HStack {
                 Text(model.chapterTitle ?? "").lineLimit(1)
                 Spacer(minLength: 8)
-                Text(scrubbing.map { $0.formatted(.percent.precision(.fractionLength(0))) } ?? model.progressLabel)
-                    .monospacedDigit()
-                    .accessibilityIdentifier("reader-progress")
+                if let scrubbing {
+                    progressText(scrubbing.formatted(.percent.precision(.fractionLength(0))))
+                        .accessibilityIdentifier("reader-progress")
+                } else {
+                    footerProgress()
+                }
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -312,19 +355,53 @@ struct ReaderScreen: View {
 
     /// Always-visible position line, like a Kindle's footer.
     private var footer: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .bottom, spacing: 12) {
             Text(model.chapterTitle ?? "")
                 .lineLimit(1)
+                .allowsHitTesting(false)
             Spacer(minLength: 8)
-            Text(model.progressLabel)
-                .monospacedDigit()
-                .accessibilityIdentifier("reader-progress")
+            footerProgress(topHitPadding: 24)
         }
         .font(.caption2)
         .foregroundStyle(palette.secondaryText)
         .padding(.horizontal, 20)
         .padding(.bottom, 6)
-        .allowsHitTesting(false)
+        .allowsHitTesting(model.book.format == .epub)
+    }
+
+    private var footerLabel: String {
+        switch footerMode {
+        case .location: model.progressLabel
+        case .chapter: model.readingTimeLabel(inChapter: true)
+        case .book: model.readingTimeLabel(inChapter: false)
+        }
+    }
+
+    @ViewBuilder
+    private func footerProgress(topHitPadding: CGFloat = 0) -> some View {
+        if model.book.format == .epub, model.locator != nil {
+            Button {
+                footerMode = footerMode.next
+            } label: {
+                progressText(footerLabel)
+                    .padding(.top, topHitPadding)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Cycles through chapter time, book time, and location")
+            .accessibilityIdentifier("reader-progress")
+            .layoutPriority(1)
+        } else {
+            progressText(model.progressLabel)
+                .accessibilityIdentifier("reader-progress")
+        }
+    }
+
+    private func progressText(_ label: String) -> some View {
+        Text(label)
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
     }
 }
 

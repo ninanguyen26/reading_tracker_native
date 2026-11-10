@@ -10,7 +10,7 @@ final class HighlightUITests: XCTestCase {
         let book = app.descendants(matching: .any)["book-The Lighthouse Keeper"].firstMatch
         XCTAssertTrue(book.waitForExistence(timeout: 15))
         book.tap()
-        XCTAssertTrue(app.staticTexts["reader-progress"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["reader-progress"].waitForExistence(timeout: 15))
         sleep(1) // let the page finish laying out before selecting text
         return app
     }

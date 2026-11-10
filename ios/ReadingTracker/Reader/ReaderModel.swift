@@ -43,7 +43,15 @@ final class ReaderModel: ObservableObject {
     private var bookmarkObservation: Task<Void, Never>?
     var highlightObservation: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
-    private var readingMovement: (origin: Locator, deadline: ContinuousClock.Instant?)?
+    private var readingMovement: (origin: Locator, dwell: Duration?, deadline: ContinuousClock.Instant?)?
+    @Published private var readingIndex: EPUBReadingIndex?
+    @Published private var bookPace = EPUBReadingPace()
+    @Published private var isIndexingReadingTime = true
+    private var readingIndexTask: Task<Void, Never>?
+    private var personalPace = EPUBReadingPace()
+    private var baselineSpeed: Double?
+    private var readingPaceActive = false
+    private var readingPaceStart: ContinuousClock.Instant?
     /// PDFKit's view inside the PDF navigator, used for search marks and highlights.
     weak var pdfView: PDFView?
     /// PDF highlights drawn as annotations, by highlight ID.
@@ -55,6 +63,11 @@ final class ReaderModel: ObservableObject {
         self.book = book
         self.environment = environment
         settings = ReaderSettingsStore.load()
+        if book.format == .epub {
+            bookPace = EPUBReadingPaceStore.load(bookID: book.id)
+            personalPace = EPUBReadingPaceStore.load()
+            baselineSpeed = personalPace.learnedSpeed
+        }
         NotificationCenter.default.addObserver(
             self, selector: #selector(paletteDidChange),
             name: .highlightPaletteDidChange, object: nil
@@ -140,6 +153,15 @@ final class ReaderModel: ObservableObject {
             try? await environment.database.markOpened(id: book.id)
             tableOfContents = (try? await publication.tableOfContents().get()) ?? []
             positionCount = try? await publication.positions().get().count
+            if book.format == .epub {
+                readingIndexTask = Task { [weak self, tableOfContents] in
+                    let index = try? await EPUBReadingIndex.load(publication: publication, contents: tableOfContents)
+                    guard !Task.isCancelled, let self else { return }
+                    readingIndex = index
+                    isIndexingReadingTime = false
+                    resetReadingPaceClock()
+                }
+            }
         } catch {
             state = .failed(error.localizedDescription)
         }
@@ -149,6 +171,7 @@ final class ReaderModel: ObservableObject {
         bookmarkObservation?.cancel()
         highlightObservation?.cancel()
         searchTask?.cancel()
+        readingIndexTask?.cancel()
     }
 
     // MARK: Search
@@ -257,25 +280,27 @@ final class ReaderModel: ObservableObject {
 
     func cancelReadingMovement() {
         readingMovement = nil
+        readingPaceStart = nil
     }
 
     private func trackReadingMovement(_ movement: ReaderHostViewController.ReadingMovement) {
         switch movement {
         case .began:
-            readingMovement = locator.map { ($0, nil) }
+            let dwell = readingPaceStart.map { $0.duration(to: .now) }
+            readingMovement = locator.map { ($0, dwell, nil) }
         case .completed:
             // A navigator can report its settled location after a swipe or page animation ends.
             readingMovement?.deadline = .now.advanced(by: .seconds(3))
             if let locator { checkReadingMovement(at: locator) }
         case .cancelled:
-            cancelReadingMovement()
+            readingMovement = nil
         }
     }
 
     private func checkReadingMovement(at destination: Locator) {
         guard let movement = readingMovement, let deadline = movement.deadline else { return }
         guard ContinuousClock.now <= deadline else {
-            cancelReadingMovement()
+            readingMovement = nil
             return
         }
         let origin = movement.origin
@@ -293,9 +318,35 @@ final class ReaderModel: ObservableObject {
             forward = nil
         }
         guard let forward else { return }
-        cancelReadingMovement()
+        readingMovement = nil
         if forward {
+            recordReadingPace(from: origin, to: destination, dwell: movement.dwell)
             Task { try? await environment.database.markReadingIfTBR(id: book.id) }
+        }
+    }
+
+    func setReadingPaceActive(_ active: Bool) {
+        guard active != readingPaceActive else { return }
+        readingPaceActive = active
+        // A movement which began before a sheet or a background transition cannot train pace.
+        readingMovement?.dwell = nil
+        resetReadingPaceClock()
+    }
+
+    private func resetReadingPaceClock() {
+        readingPaceStart = readingPaceActive && readingIndex != nil ? .now : nil
+    }
+
+    private func recordReadingPace(from origin: Locator, to destination: Locator, dwell: Duration?) {
+        guard readingPaceActive, let dwell, let readingIndex,
+              let start = readingIndex.wordOffset(at: origin), let end = readingIndex.wordOffset(at: destination) else { return }
+        let seconds = Double(dwell.components.seconds) + Double(dwell.components.attoseconds) / 1e18
+        var pace = bookPace
+        guard pace.record(words: end - start, seconds: seconds) else { return }
+        bookPace = pace
+        EPUBReadingPaceStore.save(pace, bookID: book.id)
+        if personalPace.record(words: end - start, seconds: seconds) {
+            EPUBReadingPaceStore.save(personalPace)
         }
     }
 
@@ -368,6 +419,30 @@ final class ReaderModel: ObservableObject {
         return "\(unit) \(position) of \(positionCount) · \(percent)"
     }
 
+    func readingTimeLabel(inChapter: Bool) -> String {
+        let scope = inChapter ? "chapter" : "book"
+        if isIndexingReadingTime || locator == nil { return "Calculating \(scope) time…" }
+        let unavailable = inChapter ? "Chapter time unavailable" : "Book time unavailable"
+        guard let readingIndex, let locator, let offset = readingIndex.wordOffset(at: locator) else { return unavailable }
+        let remaining = inChapter
+            ? readingIndex.wordsLeftInChapter(at: locator, wordOffset: offset)
+            : Double(readingIndex.totalWords) - offset
+        guard let remaining else { return unavailable }
+        guard let speed = bookPace.speed(startingWith: baselineSpeed) else { return "Learning \(scope) time…" }
+
+        let minutes = remaining / speed
+        let duration: String
+        if minutes < 1 {
+            duration = "<1 min"
+        } else {
+            let rounded = Int(minutes.rounded())
+            let hours = rounded / 60
+            let remainder = rounded % 60
+            duration = hours == 0 ? "\(rounded) min" : "\(hours) hr \(remainder) min"
+        }
+        return "\(duration) left in \(scope)"
+    }
+
     private func save(_ locator: Locator) {
         guard let json = try? locator.jsonString() else { return }
         let progression = locator.locations.totalProgression ?? 0
@@ -379,11 +454,13 @@ extension ReaderModel: EPUBNavigatorDelegate, PDFNavigatorDelegate {
     func navigator(_ navigator: Navigator, locationDidChange locator: Locator) {
         self.locator = locator
         checkReadingMovement(at: locator)
+        resetReadingPaceClock()
         save(locator)
     }
 
     func navigator(_ navigator: Navigator, didJumpTo locator: Locator) {
         cancelReadingMovement()
+        resetReadingPaceClock()
     }
 
     func navigator(_ navigator: PDFNavigatorViewController, setupPDFView view: PDFDocumentView) {

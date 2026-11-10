@@ -110,20 +110,32 @@ enum BookPageCounter {
     }
 }
 
-private final class EPUBPageBreakScanner: NSObject, XMLParserDelegate {
+final class EPUBPageBreakScanner: NSObject, XMLParserDelegate {
     var labels: [String] = []
     var bodyText = ""
+    private(set) var anchorOffsets: [String: Int] = [:]
+    private let anchors: Set<String>
+    private var bodyLength = 0
     private var bodyDepth: Int?
     private var excludedDepth: Int?
     private var depth = 0
     private var markerDepth: Int?
     private var label = ""
     private var attributedLabel = false
+
+    init(anchors: Set<String> = []) {
+        self.anchors = anchors
+    }
+
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes: [String: String]) {
         depth += 1
         let name = String(elementName.split(separator: ":").last ?? "").lowercased()
         if name == "body" { bodyDepth = depth }
         if excludedDepth == nil && ["nav", "script", "style", "svg"].contains(name) { excludedDepth = depth }
+        if bodyDepth != nil, excludedDepth == nil, let id = attributes["id"] ?? attributes["xml:id"] ?? attributes["name"],
+           anchors.contains(id), anchorOffsets[id] == nil {
+            anchorOffsets[id] = bodyLength
+        }
         let isBreak = attributes["role"]?.split(separator: " ").contains("doc-pagebreak") == true ||
             attributes.contains { $0.key.hasSuffix(":type") && $0.value.split(separator: " ").contains("pagebreak") }
         if isBreak {
@@ -134,15 +146,20 @@ private final class EPUBPageBreakScanner: NSObject, XMLParserDelegate {
     }
     func parser(_ parser: XMLParser, foundCharacters string: String) {
         if markerDepth != nil && !attributedLabel { label += string }
-        if bodyDepth != nil && excludedDepth == nil && markerDepth == nil { bodyText += string }
+        if bodyDepth != nil && excludedDepth == nil && markerDepth == nil { appendBodyText(string) }
     }
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
         if markerDepth == depth { labels.append(label); markerDepth = nil; label = "" }
         if excludedDepth == depth { excludedDepth = nil }
         if bodyDepth == depth { bodyDepth = nil }
         let name = String(elementName.split(separator: ":").last ?? "").lowercased()
-        if bodyDepth != nil && excludedDepth == nil && ["p", "div", "section", "li", "br", "h1", "h2", "h3"].contains(name) { bodyText += " " }
+        if bodyDepth != nil && excludedDepth == nil && ["p", "div", "section", "li", "br", "h1", "h2", "h3"].contains(name) { appendBodyText(" ") }
         depth -= 1
+    }
+
+    private func appendBodyText(_ text: String) {
+        bodyText += text
+        if !anchors.isEmpty { bodyLength += text.utf16.count }
     }
 }
 

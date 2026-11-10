@@ -1,3 +1,4 @@
+import ReadiumShared
 import XCTest
 @testable import ReadingTracker
 
@@ -16,6 +17,53 @@ final class BookPageCountTests: XCTestCase {
         XCTAssertNil(BookPageCounter.estimatedPages(words: 0))
         XCTAssertEqual(BookPageCounter.wordCount("One two three."), 3)
     }
+
+    func testReadingTimeUsesChapterAnchorsAndCanSpanResources() async throws {
+        let first = Link(href: "chapters.xhtml", mediaType: .xhtml)
+        let second = Link(href: "continued.xhtml", mediaType: .xhtml)
+        let chapters = DataResource(string: """
+            <html><body><h1 id="first">The old tower stood.</h1>
+            <h1 id="second">Waves washed ashore nightly.</h1></body></html>
+            """)
+        let continued = DataResource(string: "<html><body><p>Morning brought clear skies.</p></body></html>")
+        let publication = Publication(
+            manifest: Manifest(metadata: Metadata(title: "Example"), readingOrder: [first, second]),
+            container: CompositeContainer([
+                SingleResourceContainer(resource: chapters, at: first.url()),
+                SingleResourceContainer(resource: continued, at: second.url()),
+            ])
+        )
+        let contents = [Link(href: "chapters.xhtml#first"), Link(href: "chapters.xhtml#second")]
+        let loaded = try await EPUBReadingIndex.load(publication: publication, contents: contents)
+        let index = try XCTUnwrap(loaded)
+        XCTAssertEqual(index.totalWords, 12)
+
+        for (link, progression, expectedOffset, expectedChapterWords) in [
+            (first, 0.0, 0.0, 4.0),
+            (first, 0.5, 4.0, 8.0),
+            (second, 0.5, 10.0, 2.0),
+        ] {
+            let locator = Locator(href: link.url(), mediaType: .xhtml, locations: .init(progression: progression))
+            let offset = try XCTUnwrap(index.wordOffset(at: locator))
+            XCTAssertEqual(offset, expectedOffset)
+            XCTAssertEqual(index.wordsLeftInChapter(at: locator, wordOffset: offset), expectedChapterWords)
+        }
+    }
+
+    func testReadingPaceLearnsFromPlausibleSamplesAndUsesABaselineUntilThen() {
+        var pace = EPUBReadingPace()
+        XCTAssertFalse(pace.record(words: 100, seconds: 1))
+        XCTAssertFalse(pace.record(words: 500, seconds: 180))
+        XCTAssertFalse(pace.record(words: -100, seconds: 30))
+        for _ in 0..<2 { XCTAssertTrue(pace.record(words: 100, seconds: 25)) }
+        XCTAssertNil(pace.learnedSpeed)
+        XCTAssertEqual(pace.speed(startingWith: 180), 180)
+
+        XCTAssertTrue(pace.record(words: 100, seconds: 25))
+        XCTAssertEqual(pace.learnedSpeed, 240)
+        XCTAssertEqual(pace.speed(startingWith: 180), 205)
+    }
+
     func testRealPDFFilesAndEPUBPaginationOrFallback() async throws {
         let db = try AppDatabase.inMemory()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -88,7 +136,7 @@ final class BookPageCountTests: XCTestCase {
     }
 }
 
-private final class PageEditionProtocol: URLProtocol {
+private final class PageEditionProtocol: Foundation.URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
