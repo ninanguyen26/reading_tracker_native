@@ -5,6 +5,28 @@ import SwiftUI
 
 /// How books look. One set of settings applies to every book.
 struct ReaderSettings: Codable, Equatable {
+    enum FooterDisplay: String, CaseIterable {
+        static let storageKey = "epub-reader-footer"
+
+        case location, chapter, book
+
+        var label: String {
+            switch self {
+            case .location: "Current location"
+            case .chapter: "Time left in chapter"
+            case .book: "Time left in book"
+            }
+        }
+
+        var next: Self {
+            switch self {
+            case .location: .chapter
+            case .chapter: .book
+            case .book: .location
+            }
+        }
+    }
+
     enum Theme: String, CaseIterable, Codable, Identifiable {
         case system, light, sepia, dark
         var id: String { rawValue }

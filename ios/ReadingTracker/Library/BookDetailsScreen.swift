@@ -16,6 +16,9 @@ struct BookDetailsScreen: View {
     @State private var confirmingDelete = false
     @State private var deletingBook = false
     @State private var deleteError: String?
+    @State private var expandedTitle = false
+    @State private var collapsedTitleHeight: CGFloat = 0
+    @State private var fullTitleHeight: CGFloat = 0
     @State private var expandedDescription = false
     @State private var loadingPages = true
     @State private var showingContentWarnings = false
@@ -293,12 +296,9 @@ struct BookDetailsScreen: View {
     private var bookHeader: some View {
         HStack(alignment: .top, spacing: 18) {
             BookCoverView(book: book, coverURL: coverURL)
-                .frame(width: 96)
+                .frame(width: 124)
             VStack(alignment: .leading, spacing: 8) {
-                Text(book.title)
-                    .font(.system(.title3, design: .serif).weight(.semibold))
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                bookTitle
                 if !book.author.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                    book.author != "Unknown author" {
                     Text(book.author)
@@ -310,6 +310,48 @@ struct BookDetailsScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 4)
+    }
+
+    private var bookTitle: some View {
+        HStack(alignment: .top, spacing: 0) {
+            titleText(lineLimit: expandedTitle ? nil : 2)
+                .textSelection(.enabled)
+                .accessibilityAddTraits(.isHeader)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if collapsedTitleHeight > 0 && fullTitleHeight > collapsedTitleHeight {
+                Button { expandedTitle.toggle() } label: {
+                    Image(systemName: expandedTitle ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppPalette.secondaryText)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(expandedTitle ? "Collapse title" : "Show full title")
+            }
+        }
+        .background {
+            // Measure before reserving space for the chevron so its visibility stays stable.
+            ZStack {
+                titleText(lineLimit: 2)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                        collapsedTitleHeight = $0
+                    }
+                titleText(lineLimit: nil)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                        fullTitleHeight = $0
+                    }
+            }
+            .hidden()
+        }
+    }
+
+    private func titleText(lineLimit: Int?) -> some View {
+        Text(book.title)
+            .font(.system(.title3, design: .serif).weight(.semibold))
+            .lineLimit(lineLimit)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var personalRatingControl: some View {

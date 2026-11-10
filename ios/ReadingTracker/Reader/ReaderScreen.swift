@@ -12,7 +12,7 @@ struct ReaderScreen: View {
     private let onShowDetails: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage("epub-reader-footer") private var footerMode = FooterMode.location
+    @AppStorage(ReaderSettings.FooterDisplay.storageKey) private var footerDisplay: ReaderSettings.FooterDisplay = .location
     @State private var isReaderVisible = false
     @State private var sheet: Sheet?
     /// While dragging the slider, the position it would jump to.
@@ -27,18 +27,6 @@ struct ReaderScreen: View {
         case settings, navigation, search
         case reactions(Locator)
         var id: Self { self }
-    }
-
-    private enum FooterMode: String {
-        case location, chapter, book
-
-        var next: Self {
-            switch self {
-            case .location: .chapter
-            case .chapter: .book
-            case .book: .location
-            }
-        }
     }
 
     init(book: Book, environment: AppEnvironment, initialReaction: BookReaction?, reactionJump: Binding<BookReaction?>,
@@ -370,7 +358,7 @@ struct ReaderScreen: View {
     }
 
     private var footerLabel: String {
-        switch footerMode {
+        switch footerDisplay {
         case .location: model.progressLabel
         case .chapter: model.readingTimeLabel(inChapter: true)
         case .book: model.readingTimeLabel(inChapter: false)
@@ -381,7 +369,7 @@ struct ReaderScreen: View {
     private func footerProgress(topHitPadding: CGFloat = 0) -> some View {
         if model.book.format == .epub, model.locator != nil {
             Button {
-                footerMode = footerMode.next
+                footerDisplay = footerDisplay.next
             } label: {
                 progressText(footerLabel)
                     .padding(.top, topHitPadding)

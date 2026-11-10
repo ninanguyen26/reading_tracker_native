@@ -5,6 +5,7 @@ struct ReaderSettingsSheet: View {
     @Binding var settings: ReaderSettings
     let format: BookFormat
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(ReaderSettings.FooterDisplay.storageKey) private var footerDisplay: ReaderSettings.FooterDisplay = .location
 
     private var isPDF: Bool { format == .pdf }
 
@@ -48,6 +49,7 @@ struct ReaderSettingsSheet: View {
                             .accessibilityLabel("Larger Text")
                         }
                         .buttonStyle(.borderless)
+                        .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
 
                         Picker("Font", selection: $settings.font) {
                             ForEach(ReaderSettings.Font.allCases) { Text($0.label).tag($0) }
@@ -68,6 +70,18 @@ struct ReaderSettingsSheet: View {
                         Text("Scroll").tag(true)
                     }
                     .pickerStyle(.segmented)
+
+                    if !isPDF {
+                        Picker("Footer display", selection: $footerDisplay) {
+                            ForEach(ReaderSettings.FooterDisplay.allCases, id: \.self) { display in
+                                Text(display.label).tag(display)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .accessibilityLabel("Footer display")
+                        .accessibilityValue(footerDisplay.label)
+                        .accessibilityIdentifier("footer-display")
+                    }
                 } header: {
                     Text("Layout")
                 } footer: {

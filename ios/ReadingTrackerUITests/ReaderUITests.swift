@@ -241,16 +241,31 @@ final class ReaderUITests: XCTestCase {
         add(attachment)
     }
 
-    func testEpubFooterCyclesThroughChapterBookAndLocation() {
+    func testEpubFooterAndSettingsShareDisplayPreference() {
         let app = launch(fresh: true)
         let sample = book(epubTitle, in: app)
         XCTAssertTrue(sample.waitForExistence(timeout: 15))
         sample.tap()
 
-        let location = waitForProgress(in: app, matching: "Location 1 of .*")
+        let location = waitForProgress(in: app, matching: "Location 1 of .*", timeout: 30)
         let footer = app.buttons["reader-progress"]
         footer.tap()
         waitForProgress(in: app, matching: "Learning chapter time…")
+        footer.tap()
+        waitForProgress(in: app, matching: "Learning book time…")
+
+        showToolbar(in: app)
+        app.buttons["Reading Settings"].tap()
+        XCTAssertTrue(app.navigationBars["Reading Settings"].waitForExistence(timeout: 5))
+        let picker = app.buttons["footer-display"]
+        revealInSheet(picker, in: app)
+        XCTAssertGreaterThan(picker.frame.midY, app.buttons["Scroll"].frame.midY)
+        XCTAssertEqual(picker.value as? String, "Time left in book")
+        picker.tap()
+        app.buttons["Time left in chapter"].tap()
+        app.buttons["Done"].tap()
+        waitForProgress(in: app, matching: "Learning chapter time…")
+
         footer.tap()
         waitForProgress(in: app, matching: "Learning book time…")
         footer.tap()
