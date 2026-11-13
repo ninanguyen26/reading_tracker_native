@@ -365,9 +365,13 @@ struct LibraryView: View {
 
     private var sortSelection: Binding<LibrarySort> {
         Binding(
-            get: { model.filter == .wishlist && model.sort == .recent ? .added : model.sort },
+            get: { sortOptions.contains(model.sort) ? model.sort : .added },
             set: { model.sort = $0 }
         )
+    }
+
+    private var sortOptions: [LibrarySort] {
+        LibrarySort.allCases.filter { model.filter != .wishlist || ($0 != .recent && $0 != .rating) }
     }
 
     private var librarySearch: some View {
@@ -396,7 +400,7 @@ struct LibraryView: View {
 
             Menu {
                 Picker("Sort By", selection: sortSelection) {
-                    ForEach(LibrarySort.allCases.filter { model.filter != .wishlist || $0 != .recent }) { sort in
+                    ForEach(sortOptions) { sort in
                         Text(model.filter == .wishlist && sort == .added ? "Recently Saved" : sort.label).tag(sort)
                     }
                 }

@@ -716,20 +716,22 @@ final class LibraryTests: XCTestCase {
     }
 
     func testSortsAndSearches() {
-        func book(_ title: String, _ author: String, added: TimeInterval, opened: TimeInterval?) -> Book {
+        func book(_ title: String, _ author: String, added: TimeInterval, opened: TimeInterval?, rating: Int? = nil) -> Book {
             Book(id: title, title: title, author: author, format: .epub, fileName: "", coverFileName: nil, size: 0,
                  addedAt: Date(timeIntervalSince1970: added), lastOpenedAt: opened.map(Date.init(timeIntervalSince1970:)),
-                 locator: nil, progression: 0)
+                 locator: nil, progression: 0, personalRatingQuarterStars: rating)
         }
         let books = [
-            book("beta", "Zed", added: 1, opened: 50),
+            book("beta", "Zed", added: 1, opened: 50, rating: 18),
             book("Alpha", "Amy", added: 3, opened: nil),
-            book("gamma", "Amy", added: 2, opened: 10),
+            book("gamma", "Amy", added: 2, opened: 10, rating: 19),
         ]
         XCTAssertEqual(books.sorted(by: .title).map(\.title), ["Alpha", "beta", "gamma"])
         XCTAssertEqual(books.sorted(by: .author).map(\.title), ["Alpha", "gamma", "beta"])
         XCTAssertEqual(books.sorted(by: .recent).map(\.title), ["beta", "gamma", "Alpha"])
         XCTAssertEqual(books.sorted(by: .added).map(\.title), ["Alpha", "gamma", "beta"])
+        let tiedBook = book("delta", "Zed", added: 4, opened: nil, rating: 19)
+        XCTAssertEqual((books + [tiedBook]).sorted(by: .rating).map(\.title), ["delta", "gamma", "beta", "Alpha"])
         XCTAssertEqual(books.matching("amy").map(\.title), ["Alpha", "gamma"])
         XCTAssertEqual(books.matching("  BET ").map(\.title), ["beta"])
     }

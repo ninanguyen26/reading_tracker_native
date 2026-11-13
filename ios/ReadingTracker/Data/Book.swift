@@ -112,7 +112,7 @@ struct Book: Codable, Identifiable, Hashable, Sendable, FetchableRecord, Persist
 }
 
 enum LibrarySort: String, CaseIterable, Identifiable {
-    case recent, added, title, author
+    case recent, added, title, author, rating
 
     var id: String { rawValue }
 
@@ -122,6 +122,7 @@ enum LibrarySort: String, CaseIterable, Identifiable {
         case .added: "Recently Added"
         case .title: "Title"
         case .author: "Author"
+        case .rating: "Rating"
         }
     }
 }
@@ -139,6 +140,12 @@ extension Array where Element == Book {
             return sorted { byText($0.title, $1.title) }
         case .author:
             return sorted { $0.author == $1.author ? byText($0.title, $1.title) : byText($0.author, $1.author) }
+        case .rating:
+            return sorted {
+                let lhsRating = $0.personalRatingQuarterStars ?? 0
+                let rhsRating = $1.personalRatingQuarterStars ?? 0
+                return lhsRating == rhsRating ? byText($0.title, $1.title) : lhsRating > rhsRating
+            }
         }
     }
 

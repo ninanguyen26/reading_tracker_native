@@ -389,7 +389,7 @@ struct WishlistView: View {
             $0.title.localizedCaseInsensitiveContains(search) || $0.author.localizedCaseInsensitiveContains(search)
         }
         switch sort {
-        case .recent, .added:
+        case .recent, .added, .rating:
             return matches
         case .title:
             return matches.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
