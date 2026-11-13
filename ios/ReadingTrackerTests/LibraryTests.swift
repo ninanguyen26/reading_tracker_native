@@ -90,6 +90,41 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(reason, "Like “Mythology Favorite”, this book draws on Greek mythology.")
     }
 
+    func testDiscoverUsesReadingHistoryWhenBooksAreUnrated() throws {
+        let catalog = RecommendationCandidate.starterCatalog
+        let dune = try XCTUnwrap(catalog.first { $0.book.title == "Dune" })
+        let circe = try XCTUnwrap(catalog.first { $0.book.title == "Circe" })
+        var mythology = Book(id: "mythology", title: "Mythology Book", author: "Avery Quinn", format: .epub,
+                             fileName: "mythology.epub", subjects: ["Greek mythology"], size: 0, addedAt: .now,
+                             progression: 0, readingStatus: .reading)
+        let unread = Book(id: "space", title: "Space Book", author: "Frank Herbert", format: .epub,
+                          fileName: "space.epub", genres: [.scienceFiction], size: 0, addedAt: .now, progression: 0)
+        func picks(_ library: [Book]) -> [HomeRecommendation] {
+            HomeRecommendations.ranked(candidates: [dune, circe], library: library, wishlist: [], feedback: [:])
+        }
+
+        XCTAssertEqual(picks([mythology, unread]).first?.id, dune.id)
+        XCTAssertNil(picks([mythology, unread]).first?.reason)
+
+        mythology.progression = 0.1
+        XCTAssertEqual(picks([mythology, unread]).first?.id, circe.id)
+        XCTAssertEqual(picks([mythology, unread]).first?.reason,
+                       "This book draws on Greek mythology, like “Mythology Book”, which you’re reading.")
+
+        mythology.readingStatus = .finished
+        XCTAssertEqual(picks([mythology, unread]).first?.reason,
+                       "This book draws on Greek mythology, like “Mythology Book”, which you finished.")
+
+        mythology.personalRatingQuarterStars = 4
+        XCTAssertEqual(picks([mythology, unread]).first?.id, dune.id)
+        XCTAssertNil(picks([mythology, unread]).last?.reason)
+
+        mythology.readingStatus = .dnf
+        XCTAssertEqual(picks([mythology]).last?.id, circe.id)
+        mythology.personalRatingQuarterStars = nil
+        XCTAssertEqual(picks([mythology]).map(\.id), picks([]).map(\.id))
+    }
+
     // MARK: Import
 
     func testImportMovesTheSingleMatchingWishlistISBNAndKeepsTheLocalEdition() async throws {

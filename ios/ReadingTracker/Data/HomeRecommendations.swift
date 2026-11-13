@@ -82,10 +82,31 @@ struct HomeRecommendations {
     }
 
     private struct Signal {
+        enum Source {
+            case rating, feedback, finished, reading, tbr
+        }
+
         let title: String
         let traits: Traits
         let weight: Double
+        let source: Source
         var candidateID: Int?
+
+        init(book: Book, weight: Double, source: Source) {
+            title = book.title
+            traits = Traits(author: book.author, genres: book.genres, tags: book.hardcoverGenres + book.subjects,
+                            moods: (book.personalMoods?.map(\.rawValue) ?? []) + (book.hardcoverMoods ?? []))
+            self.weight = weight
+            self.source = source
+        }
+
+        init(candidate: RecommendationCandidate, weight: Double) {
+            title = candidate.book.title
+            traits = HomeRecommendations.traits(of: candidate)
+            self.weight = weight
+            source = .feedback
+            candidateID = candidate.id
+        }
     }
 
     private struct Ranked {
@@ -102,12 +123,16 @@ struct HomeRecommendations {
         feedback: [Int: RecommendationFeedback]
     ) -> [HomeRecommendation] {
         var signals = library.compactMap { book -> Signal? in
-            guard let rating = book.personalRatingQuarterStars else { return nil }
-            let difference = Double(rating) / 4 - 3
-            guard difference != 0 else { return nil }
-            let traits = Traits(author: book.author, genres: book.genres, tags: book.hardcoverGenres + book.subjects,
-                                moods: (book.personalMoods?.map(\.rawValue) ?? []) + (book.hardcoverMoods ?? []))
-            return Signal(title: book.title, traits: traits, weight: difference > 0 ? difference : difference * 0.5)
+            if let rating = book.personalRatingQuarterStars {
+                let difference = Double(rating) / 4 - 3
+                guard difference != 0, book.readingStatus != .dnf || difference < 0 else { return nil }
+                return Signal(book: book, weight: difference > 0 ? difference : difference * 0.5, source: .rating)
+            }
+            switch book.readingStatus {
+            case .finished: return Signal(book: book, weight: 0.45, source: .finished)
+            case .reading where book.progression >= 0.1: return Signal(book: book, weight: 0.15, source: .reading)
+            default: return nil
+            }
         }
         signals += candidates.compactMap { candidate in
             let weight: Double
@@ -116,7 +141,11 @@ struct HomeRecommendations {
             case .notForMe: weight = -0.45
             default: return nil
             }
-            return Signal(title: candidate.book.title, traits: traits(of: candidate), weight: weight, candidateID: candidate.id)
+            return Signal(candidate: candidate, weight: weight)
+        }
+        if signals.isEmpty {
+            signals = library.filter { $0.readingStatus == .tbr && $0.personalRatingQuarterStars == nil }
+                .map { Signal(book: $0, weight: 0.05, source: .tbr) }
         }
 
         let knownIDs = Set(library.compactMap(\.hardcoverBookID) + wishlist.map(\.id))
@@ -132,7 +161,21 @@ struct HomeRecommendations {
             let traits = traits(of: candidate)
             let matches = signals.filter { $0.candidateID != book.id }
                 .map { ($0, traits.similarity(to: $0.traits) * $0.weight) }
-            let positive = matches.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }.prefix(3)
+            var finishedAuthors = Set<String>()
+            var usedTBR = false
+            let positive = matches.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }.filter { signal, _ in
+                switch signal.source {
+                case .finished:
+                    // Several books from one author count as one supporting match.
+                    return finishedAuthors.insert(signal.traits.author).inserted
+                case .tbr:
+                    guard !usedTBR else { return false }
+                    usedTBR = true
+                    return true
+                default:
+                    return true
+                }
+            }.prefix(3)
             let strongestNegative = matches.map(\.1).min() ?? 0
             let score = positive.enumerated().reduce(0.0) { $0 + $1.element.1 / Double(1 << $1.offset) } +
                 min(0, strongestNegative)
@@ -170,13 +213,23 @@ struct HomeRecommendations {
     }
 
     private static func reason(for traits: Traits, comparedTo signal: Signal) -> String? {
+        guard signal.source != .tbr else { return nil }
         let title = "“\(signal.title)”"
+        let context: String
+        switch signal.source {
+        case .finished: context = ", which you finished"
+        case .reading: context = ", which you’re reading"
+        default: context = ""
+        }
         if !traits.author.isEmpty, traits.author == signal.traits.author {
-            return "By the same author as \(title)."
+            return "By the same author as \(title)\(context)."
         }
         let sharedTags = traits.tags.intersection(signal.traits.tags)
         if let match = specificConnections.first(where: { sharedTags.contains($0.tag) }) {
-            return "Like \(title), this book \(match.phrase)."
+            if context.isEmpty {
+                return "Like \(title), this book \(match.phrase)."
+            }
+            return "This book \(match.phrase), like \(title)\(context)."
         }
         return nil
     }
