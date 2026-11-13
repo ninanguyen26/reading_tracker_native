@@ -57,7 +57,7 @@ function metadata(record, edition = null, matchedISBN = null) {
   const editionYear = publicationYear(edition?.release_year);
   return {
     bookID: record.id,
-    description: typeof record.description === 'string' ? record.description.slice(0,30000) : null,
+    description: typeof record.description === 'string' ? record.description : null,
     series: (record.book_series ?? []).slice(0,20).filter(s => typeof s.series?.name === 'string')
       .map(s => ({name: s.series.name.slice(0,300), position: Number.isFinite(s.position) ? s.position : null})),
     genres: tagNames(record.cached_tags?.Genre),
@@ -110,7 +110,7 @@ function discoveryCard(book, preferred) {
     title: title.slice(0,500),
     author: [...new Set((book.contributions ?? []).map(item => item.author?.name).filter(Boolean))]
       .join(', ').slice(0,300),
-    description: typeof book.description === 'string' ? book.description.slice(0,4000) : null,
+    description: typeof book.description === 'string' ? book.description : null,
     coverURL: coverURL(preferred ? preferred.cached_image?.url : book.cached_image?.url),
     isbns: [...new Set([isbn(edition?.isbn_13), isbn(edition?.isbn_10)].filter(Boolean))]
   };
@@ -250,15 +250,15 @@ export class Catalog {
     return this.cached(`preview:${bookID}`, async () => {
       const result = await this.query(`query BookPreview($id:Int!) {
         books(where:{id:{_eq:$id}},limit:1) {
-          id release_year rating ratings_count cached_tags
+          id description release_year rating ratings_count cached_tags
           default_cover_edition { ${editionLanguage} }
         }
       }`, {id:bookID});
       const book = result.books?.[0];
       if (!book) return null;
-      const {genres, moods, rating, ratingsCount, publicationYears:{releaseYear}} = metadata(book);
+      const {description, genres, moods, rating, ratingsCount, publicationYears:{releaseYear}} = metadata(book);
       const language = book.default_cover_edition?.language;
-      return {genres, moods, releaseYear, rating, ratingsCount,
+      return {description, genres, moods, releaseYear, rating, ratingsCount,
         language:seriesLanguage(language?.code2) || seriesLanguage(language?.code3) || null};
     });
   }

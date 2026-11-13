@@ -498,7 +498,10 @@ struct DiscoveryBookPreview: View {
     @State private var wishlistError: String?
     @State private var liked = false
 
-    private var synopsis: String? { fallbackSynopsis ?? BookDetailsText.previewSynopsis(book.description) }
+    private var synopsis: String? {
+        BookDetailsText.previewSynopsis(metadata?.description) ?? fallbackSynopsis ??
+            BookDetailsText.previewSynopsis(book.description)
+    }
     private var language: String? {
         BookDetailsText.languageCode(book.language) ?? BookDetailsText.languageCode(metadata?.language)
     }
@@ -582,7 +585,7 @@ struct DiscoveryBookPreview: View {
             let fetched = try? await BookDiscoveryClient.preview(for: book.id)
             guard !Task.isCancelled else { return }
             metadata = fetched
-            if synopsis == nil, onRecommendationFeedback != nil,
+            if BookDetailsText.previewSynopsis(fetched?.description) == nil,
                let isbn = book.isbns.first,
                let details = try? await HardcoverClient.shared.metadata(matchingISBN: isbn),
                details.bookID == book.id, !Task.isCancelled {

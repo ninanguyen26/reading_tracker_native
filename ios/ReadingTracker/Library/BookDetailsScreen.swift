@@ -426,6 +426,8 @@ struct BookDetailsScreen: View {
             Text(synopsisText(description))
                 .font(.subheadline)
                 .lineSpacing(4)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
                 .accessibilityIdentifier("details-description")
                 .environment(\.openURL, OpenURLAction { url in
@@ -920,6 +922,11 @@ struct DetailsFlowLayout: Layout {
 }
 
 enum BookDetailsText {
+    static func longerDescription(_ candidate: String?, than current: String?) -> String? {
+        guard let candidate = description(candidate), candidate.count > (description(current)?.count ?? 0) else { return nil }
+        return candidate
+    }
+
     static func nonempty(_ values: [String]) -> [String] {
         values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
     }

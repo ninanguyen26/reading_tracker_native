@@ -116,12 +116,14 @@ struct OpenLibraryMetadata {
     var subjects: [String]
     var languages: [String]
     private var sources: [OpenLibraryField: String] = [:]
+    private var workDescription: String?
     var exactEditionPages: BookPageCount? = nil
 
     init(work: OpenLibraryRecord, edition: OpenLibraryRecord?, exactEdition: Bool = false) {
         workKey = work.key
         editionKey = edition?.key
-        description = BookDetailsText.description(edition?.description) ?? BookDetailsText.description(work.description)
+        workDescription = BookDetailsText.description(work.description)
+        description = BookDetailsText.description(edition?.description) ?? workDescription
         series = BookDetailsText.nonempty(edition?.series.isEmpty == false ? edition!.series : work.series)
             .map { BookSeries(name: $0, position: nil) }
         subjects = BookDetailsText.nonempty(edition?.subjects.isEmpty == false ? edition!.subjects : work.subjects)
@@ -156,7 +158,17 @@ struct OpenLibraryMetadata {
         }
     }
 
-    func filling(_ original: Book, fields: Set<OpenLibraryField>) -> Book {
+    func applyDescription(to book: inout Book, preferLonger: Bool) {
+        let longerWorkDescription = preferLonger ? BookDetailsText.longerDescription(workDescription, than: description) : nil
+        guard preferLonger || BookDetailsText.description(book.description) == nil,
+              let text = BookDetailsText.longerDescription(longerWorkDescription ?? description, than: book.description) else { return }
+        book.description = text
+        book.hardcoverFields.removeValue(forKey: "description")
+        book.openLibraryFields[OpenLibraryField.description.rawValue] = longerWorkDescription == nil
+            ? (sources[.description] ?? workKey) : workKey
+    }
+
+    func filling(_ original: Book, fields: Set<OpenLibraryField>, preferLongerDescription: Bool = false) -> Book {
         var book = original
         if book.format == .epub, let pages = exactEditionPages,
            book.pageCountSource == nil || book.pageCountSource == .estimated || book.pageCountSource == .hardcover || book.pageCountSource == .openLibrary {
@@ -164,25 +176,28 @@ struct OpenLibraryMetadata {
             book.pageCountSource = pages.source
             book.pageCountEditionKey = pages.editionKey
         }
-        let additions = Set(availableFields(for: original)).intersection(fields)
+        if fields.contains(.description) { applyDescription(to: &book, preferLonger: preferLongerDescription) }
+        var additions = Set(availableFields(for: original)).intersection(fields)
+        additions.remove(.description)
+        if book.description != original.description { additions.insert(.description) }
         guard !additions.isEmpty else { return book }
-        if additions.contains(.description) { book.description = description }
         if additions.contains(.series) { book.series = series }
         if additions.contains(.subjects) { book.subjects = subjects }
         if additions.contains(.languages) { book.languages = languages }
         book.openLibraryWorkKey = workKey
         book.openLibraryEditionKey = editionKey
-        for field in additions { book.openLibraryFields[field.rawValue] = sources[field] ?? workKey }
+        for field in additions where field != .description { book.openLibraryFields[field.rawValue] = sources[field] ?? workKey }
         return book
     }
 }
 
 extension AppDatabase {
     /// Re-read inside the transaction so reading progress and concurrent edits survive.
-    func enrichBook(id: String, metadata: OpenLibraryMetadata, fields: Set<OpenLibraryField>, classify: Bool = true) async throws -> Book {
+    func enrichBook(id: String, metadata: OpenLibraryMetadata, fields: Set<OpenLibraryField>, classify: Bool = true,
+                    preferLongerDescription: Bool = false) async throws -> Book {
         let updated = try await writer.write { db in
             guard let existing = try Book.fetchOne(db, key: id) else { throw OpenLibraryError.missingBook }
-            let updated = metadata.filling(existing, fields: fields)
+            let updated = metadata.filling(existing, fields: fields, preferLongerDescription: preferLongerDescription)
             try updated.update(db)
             return updated
         }
@@ -264,6 +279,9 @@ actor OpenLibraryClient: OpenLibraryEnriching {
             } catch OpenLibraryError.notFound {
                 // Unknown ISBNs can still have a reliable title-and-author match.
             }
+        }
+        if let key = book.openLibraryWorkKey, Self.validKey(key, kind: "works", suffix: "W") {
+            return OpenLibraryMetadata(work: try await work(key), edition: nil)
         }
         guard let match = try await uniqueWork(title: book.title, author: book.author) else { return nil }
         return OpenLibraryMetadata(work: try await work(match.key), edition: nil)
@@ -394,6 +412,17 @@ final class OpenLibraryFixtureProtocol: URLProtocol {
         if ProcessInfo.processInfo.arguments.contains("-long-description-fixture"), request.url!.path == "/works/OL1W.json" {
             let synopsis = String(repeating: "A naturalist records the changing seasons and the creatures living along the coast. ", count: 12) + "The final chapter follows the returning birds."
             json = String(data: try! JSONSerialization.data(withJSONObject: ["key": "/works/OL1W", "description": synopsis, "subjects": ["Nature", "Journals"], "series": ["Nature Journals"]]), encoding: .utf8)!
+        }
+        if ProcessInfo.processInfo.arguments.contains("-long-description-fixture") {
+            switch request.url!.path {
+            case "/search.json" where URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                .queryItems?.contains(where: { $0.name == "title" && $0.value == "The Lighthouse Keeper" }) == true:
+                json = #"{"docs":[{"key":"/works/OL2W","title":"The Lighthouse Keeper","author_name":["Avery Quinn"]}]}"#
+            case "/works/OL2W.json":
+                let synopsis = String(repeating: "A keeper watches over an isolated island through a long, stormy winter. ", count: 10) + "The keeper finally sees the ship return."
+                json = String(data: try! JSONSerialization.data(withJSONObject: ["key": "/works/OL2W", "description": synopsis]), encoding: .utf8)!
+            default: break
+            }
         }
         let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)

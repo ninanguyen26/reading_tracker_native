@@ -38,11 +38,7 @@ struct HardcoverMetadata: Sendable {
     func filling(_ original: Book) -> Book {
         var book = original
         book.hardcoverBookID = bookID
-        if BookDetailsText.description(book.description) == nil,
-           let text = BookDetailsText.description(description) {
-            book.description = text
-            book.hardcoverFields["description"] = sourceURL
-        }
+        applyDescription(to: &book)
         if book.series.isEmpty {
             book.series = series.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             if !book.series.isEmpty { book.hardcoverFields["series"] = sourceURL }
@@ -56,6 +52,13 @@ struct HardcoverMetadata: Sendable {
             book.pageCountEditionKey = pages.editionKey
         }
         return book
+    }
+
+    func applyDescription(to book: inout Book) {
+        guard let text = BookDetailsText.longerDescription(description, than: book.description) else { return }
+        book.description = text
+        book.openLibraryFields.removeValue(forKey: "description")
+        book.hardcoverFields["description"] = sourceURL
     }
 
     func applyGenreTags(to book: inout Book) {

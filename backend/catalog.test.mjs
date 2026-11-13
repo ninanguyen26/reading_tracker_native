@@ -15,6 +15,13 @@ function setup(responder,options={}) {
   return {catalog,requests};
 }
 const result = data => Response.json({data});
+test('lookup and preview return the full catalog description', async () => {
+  const description = 'A long synopsis. '.repeat(2100) + 'The final sentence.';
+  const {catalog, requests} = setup(() => result({books: [{...book, description}]}));
+  assert.equal((await catalog.lookup(input)).description, description);
+  assert.equal((await catalog.preview({bookID: book.id})).description, description);
+  assert.match(requests[1].body.query, /\bid description\b/);
+});
 test('exact ISBN supplies edition pages and separate tag categories; credentials go only upstream',async()=>{
   const {catalog,requests}=setup(()=>result({editions:[{id:11,isbn_13:'9780140328721',pages:320,book}]}));
   const data=await catalog.lookup({...input,isbn:'9780140328721'});
@@ -69,7 +76,7 @@ test('discovery preserves series order and uses exact author and series IDs', as
       contributions: [{author:{name:'Test Author'}}]
     }
   }));
-  const standalone = {id:100,title:'Standalone'};
+  const standalone = {id:100,title:'Standalone',description:'A long synopsis. '.repeat(300) + 'The final sentence.'};
   const {catalog,requests} = setup(({query}) => {
     if (query.includes('query Book(')) return result({books:[book]});
     if (query.includes('query AuthorBooks')) return result({books:[standalone]});
@@ -86,6 +93,7 @@ test('discovery preserves series order and uses exact author and series IDs', as
   assert.deepEqual(discovery.series[0].entries[0].book.isbns,['9780140328721']);
   assert.equal(discovery.series[0].nextOffset,6);
   assert.deepEqual(discovery.authorBooks.map(book => book.id),[100]);
+  assert.equal(discovery.authorBooks[0].description,standalone.description);
   assert.deepEqual(requests[2].body.variables,{id:42,authors:[17],series:[9],bookLanguage:{},editionFilter:{canonical_id:{_is_null:true}}});
   assert.match(requests[2].body.query,/contributions:\{author_id:\{_in:\$authors\}/);
   assert.match(requests[2].body.query,/_not:\{book_series:\{series_id:\{_in:\$series\}/);
@@ -253,7 +261,7 @@ test('health does not call Hardcover; public HTTP lookup returns sanitized metad
     assert.equal(discovery.status,200);assert.equal((await discovery.json()).discovery.bookID,42);
     const preview=await fetch(url+'/v1/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"bookID":42}'});
     assert.equal(preview.status,200);
-    assert.deepEqual((await preview.json()).preview,{genres:['Fantasy'],moods:['Dark'],releaseYear:null,
+    assert.deepEqual((await preview.json()).preview,{description:book.description,genres:['Fantasy'],moods:['Dark'],releaseYear:null,
       rating:4.24,ratingsCount:1283,language:null});
     const invalidPreview=await fetch(url+'/v1/preview',{method:'POST',headers:{'Content-Type':'application/json'},
       body:'{"bookID":42,"query":"arbitrary"}'});

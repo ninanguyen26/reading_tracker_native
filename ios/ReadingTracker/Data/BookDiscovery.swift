@@ -92,6 +92,7 @@ struct BookDiscovery: Decodable, Sendable {
 }
 
 struct DiscoveryPreviewMetadata: Decodable, Sendable {
+    let description: String?
     let genres: [String]
     let moods: [String]
     let releaseYear: Int?

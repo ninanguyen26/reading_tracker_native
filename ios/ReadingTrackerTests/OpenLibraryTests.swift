@@ -66,6 +66,19 @@ final class OpenLibraryTests: XCTestCase {
         XCTAssertEqual(saved?.coverFileName, local.coverFileName)
     }
 
+    func testImportEnrichmentKeepsTheFinalSentenceRegardlessOfExcerptPunctuation() throws {
+        let work = try record(#"{"key":"/works/OL1W","description":"A keeper watches over an island. One day a boat arrives with news from home."}"#)
+        let edition = try record(#"{"key":"/books/OL1M","description":"A keeper watches over an island."}"#)
+        let metadata = OpenLibraryMetadata(work: work, edition: edition)
+        for excerpt in ["A keeper watches over an island. One day", "A keeper watches over an island. One day..."] {
+            var local = book()
+            local.description = excerpt
+            let enriched = metadata.filling(local, fields: [.description], preferLongerDescription: true)
+            XCTAssertEqual(enriched.description, work.description)
+            XCTAssertEqual(enriched.openLibraryFields["description"], work.key)
+        }
+    }
+
     func testSearchEncodingAndISBNPriority() {
         let titleURL = OpenLibraryClient.searchURL(title: "A & B?", author: "C/D", isbn: "")
         let items = URLComponents(url: titleURL, resolvingAgainstBaseURL: false)!.queryItems!

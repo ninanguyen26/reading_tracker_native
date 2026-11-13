@@ -1,6 +1,28 @@
 import XCTest
 
 final class OpenLibraryUITests: XCTestCase {
+    func testImportedDescriptionsExpandThroughTheirLastSentence() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-reset-library", "-import-samples", "-open-library-fixtures", "-long-description-fixture",
+                               "-hardcover-reading-tags-fixture"]
+        app.launch()
+
+        for (title, ending) in [
+            ("Field Notes", "The final chapter follows the returning birds."),
+            ("The Lighthouse Keeper", "The keeper finally sees the ship return.")
+        ] {
+            let book = app.descendants(matching: .any)["book-\(title)"].firstMatch
+            XCTAssertTrue(book.waitForExistence(timeout: 15))
+            book.press(forDuration: 1)
+            app.buttons["Book Details"].tap()
+            let more = app.links["Read More"]
+            XCTAssertTrue(more.waitForExistence(timeout: 15))
+            more.tap()
+            XCTAssertTrue(app.staticTexts["details-description"].label.contains(ending))
+            app.navigationBars["Book Details"].buttons.firstMatch.tap()
+        }
+    }
+
     func testPDFPagesHiddenSubjectsAndInlineReadMore() {
         let app = XCUIApplication()
         app.launchArguments = ["-reset-library", "-import-samples", "-open-library-fixtures", "-long-description-fixture"]

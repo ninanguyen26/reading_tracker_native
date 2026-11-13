@@ -141,14 +141,12 @@ final class BookImporter {
                 try? await database.saveAutomaticGenre(id: book.id, decision: decision,
                                                        inputSignature: GenreInput(book: book).signature)
             }
-            if let openLibrary, BookDetailsText.description(book.description) == nil ||
-                    book.series.isEmpty || book.subjects.isEmpty || book.languages.isEmpty ||
-                    (book.format == .epub && book.pageCountSource == nil) {
+            if let openLibrary {
                 do {
                     if let metadata = try await openLibrary.metadata(for: book) {
                         try Task.checkCancellation()
                         _ = try await database.enrichBook(id: book.id, metadata: metadata,
-                            fields: Set(OpenLibraryField.allCases), classify: false)
+                            fields: Set(OpenLibraryField.allCases), classify: false, preferLongerDescription: true)
                     }
                 } catch { /* Keep the local import even if lookup fails. */ }
             }
