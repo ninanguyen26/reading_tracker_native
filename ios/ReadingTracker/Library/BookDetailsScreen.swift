@@ -13,6 +13,7 @@ struct BookDetailsScreen: View {
     @State private var showingLookup = false
     @State private var showingGenres = false
     @State private var showingShelves = false
+    @State private var shelfNames: [String]?
     @State private var confirmingDelete = false
     @State private var deletingBook = false
     @State private var deleteError: String?
@@ -72,7 +73,8 @@ struct BookDetailsScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 bookHeader
-                readingStateRow
+                readingActions
+                progressRow
                 sectionTabs
 
                 switch section {
@@ -131,6 +133,14 @@ struct BookDetailsScreen: View {
                 }
             } catch { /* Keep already loaded details if observation ends. */ }
         }
+        .task(id: book.id) {
+            let bookID = book.id
+            do {
+                for try await shelfList in environment.database.observeShelves() {
+                    shelfNames = shelfList.shelves.filter { shelfList.isBook(bookID, on: $0.id) }.map(\.name)
+                }
+            } catch { /* Keep the last known shelf names if observation ends. */ }
+        }
         .task(id: book.id + "|" + (book.openLibraryEditionKey ?? "")) {
             await environment.importer.updatePageCount(for: book)
             loadingPages = false
@@ -151,9 +161,6 @@ struct BookDetailsScreen: View {
 
     private var bookActions: some View {
         Menu {
-            Button { showingShelves = true } label: {
-                Label("Manage Shelves", systemImage: "books.vertical")
-            }
             Button(role: .destructive) { confirmingDelete = true } label: {
                 Label("Delete Book", systemImage: "trash")
             }
@@ -247,12 +254,32 @@ struct BookDetailsScreen: View {
         if !metadataSources.isEmpty { sourcesCard }
     }
 
-    private var readingStateRow: some View {
-        HStack(spacing: 14) {
+    private var readingActions: some View {
+        HStack(spacing: 12) {
             readingStatusControl
-            progressRow
+            shelvesControl
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var shelvesControl: some View {
+        let names = shelfNames ?? []
+        let title = names.first ?? (shelfNames == nil ? "Shelves" : "No Shelves")
+        let remainingCount = names.count - 1
+        return Button { showingShelves = true } label: {
+            HStack(spacing: 6) {
+                Label(title, systemImage: "books.vertical")
+                    .lineLimit(1)
+                if remainingCount > 0 {
+                    Text("+\(remainingCount)")
+                        .font(.caption.monospacedDigit())
+                        .fixedSize()
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(DetailsActionStyle(cornerRadius: 22))
+        .accessibilityLabel("Shelves")
+        .accessibilityValue(names.isEmpty ? title : names.formatted(.list(type: .and)))
     }
 
     private var readingStatusControl: some View {
@@ -271,7 +298,8 @@ struct BookDetailsScreen: View {
             }
         } label: {
             Label(book.readingStatus.label, systemImage: "chevron.up.chevron.down")
-                .fixedSize(horizontal: true, vertical: false)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(DetailsActionStyle(cornerRadius: 22))
         .accessibilityLabel("Reading Status")
