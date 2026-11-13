@@ -114,11 +114,7 @@ enum BookDiscoveryClient {
     static func discover(for book: Book) async throws -> BookDiscovery? {
         let language = language(for: book)
         if let bookID = book.hardcoverBookID, bookID > 0 {
-            let result: Response = try await request(
-                "discovery", body: BookID(bookID: bookID, language: language),
-                legacyBody: language == nil ? nil : BookID(bookID: bookID)
-            )
-            if let discovery = result.discovery { return discovery }
+            if let discovery = try await discover(bookID: bookID, language: language) { return discovery }
         }
         let isbn = OpenLibraryISBN.normalize(book.isbn)
         guard isbn != nil || (!book.title.isEmpty && !book.author.isEmpty && book.author != "Unknown author") else { return nil }
@@ -127,6 +123,14 @@ enum BookDiscoveryClient {
         localizedLookup.language = language
         let result: Response = try await request(
             "discovery", body: localizedLookup, legacyBody: language == nil ? nil : lookup
+        )
+        return result.discovery
+    }
+
+    static func discover(bookID: Int, language: String?) async throws -> BookDiscovery? {
+        let result: Response = try await request(
+            "discovery", body: BookID(bookID: bookID, language: language),
+            legacyBody: language == nil ? nil : BookID(bookID: bookID)
         )
         return result.discovery
     }

@@ -1,10 +1,11 @@
 import SwiftUI
 
 struct BookDiscoverySection: View {
-    let book: Book
-    let coverURL: URL?
-    let libraryBooks: [Book]
-    let onOpenBook: (String) -> Void
+    private let book: Book?
+    private let catalogBook: DiscoveryBook?
+    private let coverURL: URL?
+    private let libraryBooks: [Book]
+    private let onOpenBook: ((String) -> Void)?
     @EnvironmentObject private var environment: AppEnvironment
     @State private var discovery: BookDiscovery?
     @State private var loadedDiscoveryKey: String?
@@ -12,8 +13,28 @@ struct BookDiscoverySection: View {
     @State private var selectionAfterSeries: DiscoveryBook?
     private let coverWidth: CGFloat = 96
 
-    private var language: String? { BookDiscoveryClient.language(for: book) }
-    private var discoveryKey: String { "\(book.hardcoverBookID ?? 0)|\(book.isbn ?? "")|\(language ?? "")" }
+    init(book: Book, coverURL: URL?, libraryBooks: [Book], onOpenBook: @escaping (String) -> Void) {
+        self.book = book
+        catalogBook = nil
+        self.coverURL = coverURL
+        self.libraryBooks = libraryBooks
+        self.onOpenBook = onOpenBook
+    }
+
+    init(catalogBook: DiscoveryBook) {
+        book = nil
+        self.catalogBook = catalogBook
+        coverURL = nil
+        libraryBooks = []
+        onOpenBook = nil
+    }
+
+    private var language: String? {
+        book.flatMap(BookDiscoveryClient.language(for:)) ?? BookDetailsText.languageCode(catalogBook?.language)
+    }
+    private var discoveryKey: String {
+        "\(book?.hardcoverBookID ?? catalogBook?.id ?? 0)|\(book?.isbn ?? "")|\(language ?? "")"
+    }
 
     private enum Destination: Identifiable {
         case series(DiscoverySeries)
@@ -29,7 +50,7 @@ struct BookDiscoverySection: View {
 
     private var catalogSeries: [DiscoverySeries] { discovery?.series ?? [] }
     private var embeddedSeries: [BookSeries] {
-        book.series.filter { membership in
+        (book?.series ?? []).filter { membership in
             !membership.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
                 !catalogSeries.contains { $0.name.localizedCaseInsensitiveCompare(membership.name) == .orderedSame }
         }
@@ -43,12 +64,14 @@ struct BookDiscoverySection: View {
                     ForEach(catalogSeries) { series in
                         seriesRow(series)
                     }
-                    ForEach(embeddedSeries, id: \.self) { series in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(BookDetailsText.series(series.name, position: series.position))
-                                .font(.subheadline.weight(.semibold))
-                            coverTile(title: book.title, position: nil, current: true) {
-                                BookCoverView(book: book, coverURL: coverURL, showsPlaceholderTitle: false)
+                    if let book {
+                        ForEach(embeddedSeries, id: \.self) { series in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(BookDetailsText.series(series.name, position: series.position))
+                                    .font(.subheadline.weight(.semibold))
+                                coverTile(title: book.title, position: nil, current: true) {
+                                    BookCoverView(book: book, coverURL: coverURL, showsPlaceholderTitle: false)
+                                }
                             }
                         }
                     }
@@ -68,9 +91,21 @@ struct BookDiscoverySection: View {
         .task(id: discoveryKey) {
             let key = discoveryKey
             guard loadedDiscoveryKey != key else { return }
-            if let result = try? await BookDiscoveryClient.discover(for: book), !Task.isCancelled {
-                discovery = result
-                loadedDiscoveryKey = key
+            do {
+                let result: BookDiscovery?
+                if let catalogBook {
+                    result = try await BookDiscoveryClient.discover(bookID: catalogBook.id, language: language)
+                } else if let book {
+                    result = try await BookDiscoveryClient.discover(for: book)
+                } else {
+                    return
+                }
+                if !Task.isCancelled, let result {
+                    discovery = result
+                    loadedDiscoveryKey = key
+                }
+            } catch {
+                // Related books are optional when the catalog can't be reached.
             }
         }
         .sheet(item: $destination, onDismiss: openSelectionAfterSeries) { destination in
@@ -125,12 +160,13 @@ struct BookDiscoverySection: View {
 
     @ViewBuilder private func relatedTile(_ related: DiscoveryBook, position: Double? = nil, current: Bool = false) -> some View {
         let local = current ? book : related.libraryMatch(in: libraryBooks)
-        let tile = coverTile(title: current ? book.title : related.title, position: position, current: current) {
+        let tile = coverTile(title: current ? (book?.title ?? catalogBook?.title ?? related.title) : related.title,
+                             position: position, current: current) {
             if let local, let file = local.coverFileName,
                current || related.language == nil || related.language == BookDiscoveryClient.language(for: local) {
                 BookCoverView(book: local, coverURL: environment.storage.url(for: file), showsPlaceholderTitle: false)
             } else {
-                DiscoveryCover(book: related, showsPlaceholderTitle: false)
+                DiscoveryCover(book: current ? (catalogBook ?? related) : related, showsPlaceholderTitle: false)
             }
         }
         if current {
@@ -173,7 +209,7 @@ struct BookDiscoverySection: View {
     }
 
     private func open(_ related: DiscoveryBook) {
-        if let local = related.libraryMatch(in: libraryBooks), local.id != book.id {
+        if let onOpenBook, let local = related.libraryMatch(in: libraryBooks), local.id != book?.id {
             onOpenBook(local.id)
         } else {
             destination = .preview(related)
@@ -509,6 +545,7 @@ struct DiscoveryBookPreview: View {
                             }
                         }
                     }
+                    BookDiscoverySection(catalogBook: book)
                     Link(destination: book.sourceURL) {
                         Label("View on Hardcover", systemImage: "arrow.up.right.square")
                             .frame(maxWidth: .infinity)
