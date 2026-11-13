@@ -14,7 +14,7 @@ struct BookDetailsScreen: View {
     @State private var showingLookup = false
     @State private var showingGenres = false
     @State private var showingShelves = false
-    @State private var shelfNames: [String]?
+    @State private var shelfNames: [String] = []
     @State private var confirmingDelete = false
     @State private var deletingBook = false
     @State private var deleteError: String?
@@ -264,9 +264,8 @@ struct BookDetailsScreen: View {
     }
 
     private var shelvesControl: some View {
-        let names = shelfNames ?? []
-        let title = names.first ?? (shelfNames == nil ? "Shelves" : "No Shelves")
-        let remainingCount = names.count - 1
+        let title = shelfNames.first ?? "Shelves"
+        let remainingCount = shelfNames.count - 1
         return Button { showingShelves = true } label: {
             HStack(spacing: 6) {
                 Label(title, systemImage: "books.vertical")
@@ -281,7 +280,7 @@ struct BookDetailsScreen: View {
         }
         .buttonStyle(DetailsActionStyle(cornerRadius: 22))
         .accessibilityLabel("Shelves")
-        .accessibilityValue(names.isEmpty ? title : names.formatted(.list(type: .and)))
+        .accessibilityValue(shelfNames.formatted(.list(type: .and)))
     }
 
     private var readingStatusControl: some View {
