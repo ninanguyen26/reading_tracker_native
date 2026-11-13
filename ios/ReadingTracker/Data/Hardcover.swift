@@ -66,7 +66,7 @@ struct HardcoverMetadata: Sendable {
     func applyReadingMetadata(to book: inout Book) {
         if let publicationYears { book.hardcoverPublicationYears = publicationYears }
         if book.hardcoverMoods == nil, let moods {
-            let tags = BookDetailsText.nonempty(moods)
+            let tags = BookDetailsText.hardcoverMoods(moods)
             book.hardcoverMoods = tags
             if !tags.isEmpty { book.hardcoverFields["moods"] = sourceURL }
         }

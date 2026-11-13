@@ -30,6 +30,12 @@ test('zero ratings do not produce an average',async()=>{
   const data=await catalog.lookup(input);
   assert.equal(data.rating,null);assert.equal(data.ratingsCount,0);
 });
+test('lookup and preview remove array fragments from Hardcover mood tags', async () => {
+  const cached_tags = {Mood: [{tag: 'mysterious'}, {tag: '"mysterious"]'}, {tag: '["reflective"'}]};
+  const {catalog} = setup(() => result({books: [{...book, cached_tags}]}));
+  assert.deepEqual((await catalog.lookup(input)).moods, ['mysterious', 'reflective']);
+  assert.deepEqual((await catalog.preview({bookID: book.id})).moods, ['mysterious', 'reflective']);
+});
 test('book and ISBN edition years are independent of each other and of page count',async()=>{
   const edition = {id:11,isbn_13:'9780140328721',release_year:2018,book:{...book,release_year:1980}};
   const {catalog,requests}=setup(body=>result(body.variables.isbn ? {editions:[edition]} : {books:[edition.book]}));

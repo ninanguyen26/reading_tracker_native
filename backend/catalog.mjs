@@ -33,6 +33,15 @@ function tagNames(tags) {
   return Array.isArray(tags) ? [...new Set(tags.map(t => typeof t === 'string' ? t : t?.tag ?? t?.name)
     .filter(t => typeof t === 'string' && t.trim()).map(t => t.trim().slice(0,100)))].slice(0,30) : [];
 }
+function moodNames(tags) {
+  if (!Array.isArray(tags)) return [];
+  return tagNames(tags.map(item => {
+    const mood = typeof item === 'string' ? item : item?.tag ?? item?.name;
+    return typeof mood === 'string'
+      ? mood.trim().replace(/^(?=\[|.*\]$)\[?"([^"]+)"\]?$/, '$1')
+      : mood;
+  }));
+}
 function warningTags(categories) {
   return Object.entries(categories ?? {}).flatMap(([category, tags]) => {
     const name = normalize(category).replaceAll(' ', '');
@@ -52,7 +61,7 @@ function metadata(record, edition = null, matchedISBN = null) {
     series: (record.book_series ?? []).slice(0,20).filter(s => typeof s.series?.name === 'string')
       .map(s => ({name: s.series.name.slice(0,300), position: Number.isFinite(s.position) ? s.position : null})),
     genres: tagNames(record.cached_tags?.Genre),
-    moods: tagNames(record.cached_tags?.Mood),
+    moods: moodNames(record.cached_tags?.Mood),
     contentWarnings: tagNames(warningTags(record.cached_tags)),
     rating: ratingsCount > 0 && Number.isFinite(rating) && rating >= 0 && rating <= 5 ? rating : null,
     ratingsCount,

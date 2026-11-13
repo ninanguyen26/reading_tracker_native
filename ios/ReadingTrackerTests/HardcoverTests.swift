@@ -82,6 +82,15 @@ final class HardcoverTests: XCTestCase {
         let absent = try await service.metadata(for: mismatch)
         XCTAssertNil(absent)
     }
+    func testHardcoverMoodLabelsNormalizeSavedArrayFragmentsAndRemoveDuplicates() {
+        let rawMoods = ["Dark", "mysterious", #""Mysterious"]"#, #"["reflective""#, " "]
+        let expected = ["Dark", "mysterious", "reflective"]
+        XCTAssertEqual(BookDetailsText.hardcoverMoods(rawMoods), expected)
+
+        var metadata = fallback
+        metadata.moods = rawMoods
+        XCTAssertEqual(metadata.filling(book()).hardcoverMoods, expected)
+    }
     func testDuplicateEditionAndTitleMatchesStayUnclassified() async throws {
         var local = book()
         local.title = "Ambiguous"

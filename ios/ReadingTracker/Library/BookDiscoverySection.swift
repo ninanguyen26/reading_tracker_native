@@ -483,7 +483,8 @@ private struct DiscoveryBookPreview: View {
                     if let metadata, let genres = SubjectGenreMapping.classifyHardcover(metadata.genres)?.genres {
                         tagSection("Genres", tags: genres.map(\.displayName))
                     }
-                    if let moods = metadata?.moods, !moods.isEmpty {
+                    let moods = BookDetailsText.hardcoverMoods(metadata?.moods ?? [])
+                    if !moods.isEmpty {
                         tagSection("Moods", tags: moods.map { $0.lowercased() })
                     }
                     if metadata?.releaseYear != nil || language != nil || metadata?.rating != nil {

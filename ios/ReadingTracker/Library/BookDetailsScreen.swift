@@ -225,7 +225,8 @@ struct BookDetailsScreen: View {
     @ViewBuilder private var about: some View {
         if let description { synopsisCard(description) }
         genresCard
-        if let moods = book.hardcoverMoods, !moods.isEmpty {
+        let moods = BookDetailsText.hardcoverMoods(book.hardcoverMoods ?? [])
+        if !moods.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 heading("Moods")
                 readingTagChips(moods, lowercase: true)
@@ -884,6 +885,14 @@ struct DetailsFlowLayout: Layout {
 enum BookDetailsText {
     static func nonempty(_ values: [String]) -> [String] {
         values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    }
+
+    static func hardcoverMoods(_ values: [String]) -> [String] {
+        let moods = nonempty(values).map {
+            $0.replacingOccurrences(of: #"^(?=\[|.*\]$)\[?"([^"]+)"\]?$"#, with: "$1", options: .regularExpression)
+        }
+        var seen = Set<String>()
+        return nonempty(moods).filter { seen.insert($0.lowercased()).inserted }
     }
 
     static func series(_ name: String, position: Double?) -> String {
