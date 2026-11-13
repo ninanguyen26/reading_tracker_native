@@ -8,6 +8,7 @@ final class ReaderSettingsTests: XCTestCase {
         XCTAssertEqual(prefs.publisherStyles, true)
         XCTAssertNil(prefs.fontFamily)
         XCTAssertNil(prefs.lineHeight)
+        XCTAssertNil(prefs.textAlign)
         XCTAssertEqual(prefs.fontSize, 1.0)
         XCTAssertEqual(prefs.theme, .light)
         XCTAssertEqual(prefs.scroll, false)
@@ -36,6 +37,31 @@ final class ReaderSettingsTests: XCTestCase {
         XCTAssertEqual(ReaderSettings(theme: .sepia).epubPreferences(systemDark: true).theme, .sepia)
     }
 
+    func testAlignmentOverridesUseReadiumWithoutChangingLineSpacing() {
+        var settings = ReaderSettings()
+        settings.textAlignment = .start
+        let start = settings.epubPreferences(systemDark: false)
+        XCTAssertEqual(start.textAlign, .start)
+        XCTAssertEqual(start.publisherStyles, false)
+        XCTAssertNil(start.lineHeight)
+
+        settings.textAlignment = .justify
+        XCTAssertEqual(settings.epubPreferences(systemDark: false).textAlign, .justify)
+        settings.textAlignment = nil
+        let original = settings.epubPreferences(systemDark: false)
+        XCTAssertNil(original.textAlign)
+        XCTAssertEqual(original.publisherStyles, true)
+    }
+
+    func testSettingsSavedBeforeAlignmentKeepTheirValues() throws {
+        let json = #"{"theme":"sepia","fontSize":1.4,"font":"verdana","spacing":"loose","margins":"wide","scroll":true}"#
+        let settings = try JSONDecoder().decode(ReaderSettings.self, from: Data(json.utf8))
+        XCTAssertEqual(settings, ReaderSettings(
+            theme: .sepia, fontSize: 1.4, font: .verdana, spacing: .loose, margins: .wide, scroll: true
+        ))
+        XCTAssertNil(settings.textAlignment)
+    }
+
     func testPDFUsesScrollAndThemedBackground() {
         var settings = ReaderSettings(theme: .dark)
         settings.scroll = true
@@ -49,6 +75,7 @@ final class ReaderSettingsTests: XCTestCase {
         XCTAssertEqual(ReaderSettingsStore.load(from: defaults), ReaderSettings())
         var settings = ReaderSettings(theme: .sepia)
         settings.fontSize = 1.4
+        settings.textAlignment = .justify
         settings.scroll = true
         ReaderSettingsStore.save(settings, to: defaults)
         XCTAssertEqual(ReaderSettingsStore.load(from: defaults), settings)

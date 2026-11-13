@@ -64,6 +64,17 @@ struct ReaderSettings: Codable, Equatable {
         var label: String { rawValue.capitalized }
     }
 
+    enum Alignment: String, CaseIterable, Codable, Identifiable {
+        case start, justify
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .start: "Align to start"
+            case .justify: "Justified"
+            }
+        }
+    }
+
     enum Margins: String, CaseIterable, Codable, Identifiable {
         case narrow, normal, wide
         var id: String { rawValue }
@@ -75,11 +86,13 @@ struct ReaderSettings: Codable, Equatable {
     var fontSize: Double = 1.0
     var font: Font = .original
     var spacing: Spacing = .normal
+    var textAlignment: Alignment?
     var margins: Margins = .normal
     var scroll = false
 
     static let fontSizeRange = 0.7 ... 2.0
     static let fontSizeStep = 0.1
+    static let showClockStorageKey = "reader-show-clock"
     static let readingSpeedStorageKey = "epub-reading-speed"
     static let defaultReadingSpeed = 200
     static let readingSpeedRange = 10 ... 1000
@@ -92,7 +105,7 @@ struct ReaderSettings: Codable, Equatable {
     // MARK: Readium preferences
 
     func epubPreferences(systemDark: Bool) -> EPUBPreferences {
-        // Custom fonts and spacing only take effect with the book's own styles turned off.
+        // Readium applies typography and alignment overrides with publisher styles turned off.
         let customTypography = font != .original || spacing != .normal
         return EPUBPreferences(
             fontFamily: {
@@ -123,8 +136,9 @@ struct ReaderSettings: Codable, Equatable {
                 case .wide: 1.6
                 }
             }(),
-            publisherStyles: !customTypography,
+            publisherStyles: !customTypography && textAlignment == nil,
             scroll: scroll,
+            textAlign: textAlignment.map { $0 == .start ? .start : .justify },
             theme: {
                 switch resolvedTheme(systemDark: systemDark) {
                 case .dark: .dark

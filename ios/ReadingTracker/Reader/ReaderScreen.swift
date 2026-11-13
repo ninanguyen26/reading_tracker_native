@@ -11,6 +11,7 @@ struct ReaderScreen: View {
     private let initialReaction: BookReaction?
     private let onShowDetails: () -> Void
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(ReaderSettings.showClockStorageKey) private var showClock = false
     @AppStorage(ReaderSettings.FooterDisplay.storageKey) private var footerDisplay: ReaderSettings.FooterDisplay = .location
     @AppStorage(ReaderSettings.readingSpeedStorageKey) private var readingSpeed = ReaderSettings.defaultReadingSpeed
     @State private var sheet: Sheet?
@@ -292,6 +293,7 @@ struct ReaderScreen: View {
             .accessibilityLabel("Position in book")
             .accessibilityIdentifier("position-slider")
             HStack {
+                readerClock
                 Text(model.chapterTitle ?? "").lineLimit(1)
                 Spacer(minLength: 8)
                 if let scrubbing {
@@ -332,6 +334,7 @@ struct ReaderScreen: View {
     /// Always-visible position line, like a Kindle's footer.
     private var footer: some View {
         HStack(alignment: .bottom, spacing: 12) {
+            readerClock
             Text(model.chapterTitle ?? "")
                 .lineLimit(1)
                 .allowsHitTesting(false)
@@ -343,6 +346,21 @@ struct ReaderScreen: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 6)
         .allowsHitTesting(model.book.format == .epub)
+    }
+
+    @ViewBuilder
+    private var readerClock: some View {
+        if showClock {
+            TimelineView(.everyMinute) { context in
+                let time = context.date.formatted(.dateTime.hour().minute())
+                progressText(time)
+                    .accessibilityLabel("Current time")
+                    .accessibilityValue(time)
+                    .accessibilityIdentifier("reader-clock")
+            }
+            .layoutPriority(1)
+            .allowsHitTesting(false)
+        }
     }
 
     private var footerLabel: String {

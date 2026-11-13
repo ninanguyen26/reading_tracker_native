@@ -351,11 +351,13 @@ final class ReaderUITests: XCTestCase {
         picker.tap()
         app.buttons["Time left in chapter"].tap()
 
-        let increaseSpeed = app.buttons["Increase reading speed"]
-        revealInSheet(increaseSpeed, in: app)
-        XCTAssertTrue(app.staticTexts["reading-speed-value"].label.contains("200"))
-        for _ in 0..<5 { increaseSpeed.tap() }
-        XCTAssertTrue(app.staticTexts["reading-speed-value"].label.contains("250"))
+        let speedPicker = app.buttons["reading-speed"]
+        revealInSheet(speedPicker, in: app)
+        XCTAssertEqual(speedPicker.value as? String, "200 WPM")
+        speedPicker.tap()
+        app.buttons["250 WPM"].tap()
+        app.buttons["Save speed"].tap()
+        XCTAssertEqual(speedPicker.value as? String, "250 WPM")
         app.buttons["Done"].tap()
         let fasterChapter = waitForProgress(in: app, matching: "About .* left in chapter")
         XCTAssertNotEqual(fasterChapter, initialChapter)
@@ -365,6 +367,67 @@ final class ReaderUITests: XCTestCase {
         XCTAssertNotEqual(fasterBook, initialBook)
         footer.tap()
         XCTAssertEqual(footer.label, location)
+    }
+
+    func testReadingSpeedPresetsAndStopwatchCalculatorUpdateBothEstimates() throws {
+        let app = launch(fresh: true)
+        app.buttons["tab-settings"].tap()
+        app.buttons["Reading Preferences"].tap()
+
+        let speedPicker = app.buttons["reading-speed"]
+        revealInSheet(speedPicker, in: app)
+        XCTAssertEqual(speedPicker.value as? String, "200 WPM")
+        speedPicker.tap()
+        app.buttons["250 WPM"].tap()
+        app.buttons["Save speed"].tap()
+        XCTAssertEqual(speedPicker.value as? String, "250 WPM")
+
+        speedPicker.tap()
+        let entry = app.textFields["reading-speed-entry"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        entry.tap()
+        entry.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3) + "235")
+        app.buttons["Save speed"].tap()
+        XCTAssertEqual(speedPicker.value as? String, "235 WPM")
+
+        let calculator = app.buttons["Stopwatch calculator"]
+        revealInSheet(calculator, in: app)
+        calculator.tap()
+        let start = app.buttons["Start stopwatch"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        start.tap()
+        app.buttons["Stop stopwatch"].tap()
+        let result = app.staticTexts["calculated-reading-speed"]
+        let visible = NSPredicate(format: "hittable == true")
+        wait(for: [expectation(for: visible, evaluatedWith: result)], timeout: 5)
+        revealInSheet(entry, in: app)
+        let measuredSeconds = try XCTUnwrap(entry.value as? String)
+        XCTAssertGreaterThan(Int(measuredSeconds) ?? 0, 0)
+        entry.tap()
+        entry.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: measuredSeconds.count) + "75")
+        wait(for: [expectation(for: visible, evaluatedWith: result)], timeout: 5)
+        XCTAssertEqual(result.label, "160 WPM")
+        let explanation = app.staticTexts["reading-speed-explanation"]
+        XCTAssertTrue(explanation.label.contains("words per minute"))
+        XCTAssertTrue(explanation.label.contains("chapter and book"))
+        let save = app.buttons["Save speed"]
+        XCTAssertGreaterThan(save.frame.minY, result.frame.maxY)
+        captureDetails("Stopwatch reading speed result", in: app)
+        save.tap()
+        XCTAssertEqual(speedPicker.value as? String, "160 WPM")
+
+        app.buttons["Done"].tap()
+        app.buttons["tab-library"].tap()
+        let sample = book(epubTitle, in: app)
+        XCTAssertTrue(sample.waitForExistence(timeout: 15))
+        sample.tap()
+
+        waitForProgress(in: app, matching: "Location 1 of .*", timeout: 30)
+        let footer = app.buttons["reader-progress"]
+        footer.tap()
+        waitForProgress(in: app, matching: "About 12 min left in chapter")
+        footer.tap()
+        waitForProgress(in: app, matching: "About 37 min left in book")
     }
 
     func testReadsAnEpubAndRemembersThePosition() {
@@ -454,6 +517,47 @@ final class ReaderUITests: XCTestCase {
         XCTAssertEqual(app.staticTexts["font-size"].label, "110%")
         revealInSheet(app.buttons["Scroll"], in: app)
         XCTAssertTrue(app.buttons["Scroll"].isSelected)
+    }
+
+    func testReaderClockAndTextAlignmentPersist() {
+        var app = launch(fresh: true)
+        app.buttons["tab-settings"].tap()
+        app.buttons["Reading Preferences"].tap()
+
+        let alignment = app.buttons["reader-text-alignment"]
+        revealInSheet(alignment, in: app)
+        XCTAssertEqual(alignment.value as? String, "Original")
+        alignment.tap()
+        XCTAssertTrue(app.buttons["Original"].exists)
+        XCTAssertTrue(app.buttons["Align to start"].exists)
+        app.buttons["Justified"].tap()
+        XCTAssertEqual(alignment.value as? String, "Justified")
+
+        let clockToggle = app.switches["reader-show-clock"]
+        revealInSheet(clockToggle, in: app)
+        XCTAssertEqual(clockToggle.value as? String, "0")
+        clockToggle.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        wait(for: [expectation(for: NSPredicate(format: "value == %@", "1"), evaluatedWith: clockToggle)], timeout: 5)
+        app.buttons["Done"].tap()
+
+        app.terminate()
+        app = launch(fresh: false)
+        app.buttons["tab-settings"].tap()
+        app.buttons["Reading Preferences"].tap()
+        let savedAlignment = app.buttons["reader-text-alignment"]
+        revealInSheet(savedAlignment, in: app)
+        XCTAssertEqual(savedAlignment.value as? String, "Justified")
+        app.buttons["Done"].tap()
+
+        app.buttons["tab-library"].tap()
+        let sample = book(epubTitle, in: app)
+        XCTAssertTrue(sample.waitForExistence(timeout: 15))
+        sample.tap()
+        waitForProgress(in: app, matching: "Location 1 of .*")
+        let clock = app.staticTexts["reader-clock"]
+        XCTAssertTrue(clock.waitForExistence(timeout: 5))
+        XCTAssertFalse((clock.value as? String ?? "").isEmpty)
+        captureDetails("Reader clock and justified text", in: app)
     }
 
     func testFontSamplesScrollAndPersist() {
