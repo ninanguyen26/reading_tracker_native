@@ -30,6 +30,7 @@ struct LibraryView: View {
     private enum Route: Hashable {
         case reader(String, initialReaction: BookReaction? = nil)
         case details(String, fromReader: Bool)
+        case genre(BookGenre)
     }
 
     private enum ShelfNaming {
@@ -204,6 +205,8 @@ struct LibraryView: View {
                     path.removeAll()
                 } onOpenBook: { id in
                     path.append(.details(id, fromReader: false))
+                } onOpenGenre: { genre in
+                    path.append(.genre(genre))
                 } onOpenReaction: { reaction in
                     guard path.last == route else { return }
                     if fromReader {
@@ -214,7 +217,68 @@ struct LibraryView: View {
                     }
                 }
             }
+        case .genre(let genre):
+            genreBooks(genre)
         }
+    }
+
+    private struct GenreResults<Content: View>: View {
+        @State private var query = ""
+        @FocusState private var searchFocused: Bool
+        @ViewBuilder let content: (Binding<String>, FocusState<Bool>.Binding) -> Content
+
+        var body: some View {
+            content($query, $searchFocused)
+        }
+    }
+
+    private func genreBooks(_ genre: BookGenre) -> some View {
+        GenreResults { query, focus in
+            let books = model.books.filter { $0.genres.contains(genre) }
+            let matches = books.matching(query.wrappedValue).sorted(by: model.sort)
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    searchField(query: query, focus: focus)
+                    sortMenu(isWishlist: false, disabled: books.isEmpty)
+                }
+                .modifier(LibrarySearchRowSpacing())
+
+                ScrollView {
+                    if matches.isEmpty {
+                        Text(books.isEmpty ? "No books in this genre." : "No books match “\(query.wrappedValue)”.")
+                            .foregroundStyle(AppPalette.secondaryText)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 40)
+                    }
+                    bookResults(matches, allowsSelection: false)
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .accessibilityIdentifier("genre-results")
+            }
+        }
+        .background(AppPalette.background)
+        .foregroundStyle(AppPalette.text)
+        .toolbarBackground(AppPalette.background, for: .navigationBar)
+        .navigationTitle(genre.displayName)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+    }
+
+    private func bookResults(_ books: [Book], allowsSelection: Bool) -> some View {
+        let isSelecting = allowsSelection && selecting
+        return LazyVGrid(columns: libraryColumns, spacing: layout == .card ? 12 : 28) {
+            ForEach(books) { book in
+                if layout == .card {
+                    bookCard(book, isSelecting: isSelecting)
+                } else if isSelecting {
+                    selectableBook(book)
+                } else {
+                    bookLink(book)
+                }
+            }
+        }
+        .padding(.horizontal)
+        .padding(.bottom, 24)
     }
 
     @ViewBuilder private var rootContent: some View {
@@ -239,6 +303,10 @@ struct LibraryView: View {
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal)
                                 .padding(.top, 40)
+                        } else if model.genreFilter != .all && model.visibleBooks.isEmpty {
+                            Text("No books match this genre filter.")
+                                .foregroundStyle(AppPalette.secondaryText)
+                                .padding(.top, 40)
                         } else if !model.query.isEmpty && model.visibleBooks.isEmpty {
                             Text("No books match “\(model.query)”.")
                                 .foregroundStyle(AppPalette.secondaryText)
@@ -248,19 +316,7 @@ struct LibraryView: View {
                                 .foregroundStyle(AppPalette.secondaryText)
                                 .padding(.top, 40)
                         }
-                        LazyVGrid(columns: libraryColumns, spacing: layout == .card ? 12 : 28) {
-                            ForEach(model.visibleBooks) { book in
-                                if layout == .card {
-                                    bookCard(book)
-                                } else if selecting {
-                                    selectableBook(book)
-                                } else {
-                                    bookLink(book)
-                                }
-                            }
-                        }
-                        .padding(.horizontal)
-                        .padding(.bottom, 24)
+                        bookResults(model.visibleBooks, allowsSelection: true)
                     }
                     .scrollDismissesKeyboard(.interactively)
                     .accessibilityIdentifier("library-scroll")
@@ -363,81 +419,133 @@ struct LibraryView: View {
         }
     }
 
-    private var sortSelection: Binding<LibrarySort> {
-        Binding(
+    private var librarySearch: some View {
+        HStack(spacing: 12) {
+            searchField(query: $model.query, focus: $searchFocused)
+            filterMenu
+            let isWishlist = model.filter == .wishlist
+            sortMenu(isWishlist: isWishlist, disabled: !isWishlist && model.books.isEmpty)
+        }
+        .modifier(LibrarySearchRowSpacing())
+    }
+
+    private func searchField(query: Binding<String>, focus: FocusState<Bool>.Binding) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Title or author", text: query)
+                .focused(focus)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .onSubmit { focus.wrappedValue = false }
+                .accessibilityIdentifier("library-search")
+            if !query.wrappedValue.isEmpty {
+                Button { query.wrappedValue = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .accessibilityLabel("Clear Search")
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 48)
+        .foregroundStyle(.primary)
+        .modifier(LibraryControlSurface())
+    }
+
+    private func sortMenu(isWishlist: Bool, disabled: Bool) -> some View {
+        let sortOptions = LibrarySort.allCases.filter { !isWishlist || ($0 != .recent && $0 != .rating) }
+        let sortSelection = Binding(
             get: { sortOptions.contains(model.sort) ? model.sort : .added },
             set: { model.sort = $0 }
         )
-    }
-
-    private var sortOptions: [LibrarySort] {
-        LibrarySort.allCases.filter { model.filter != .wishlist || ($0 != .recent && $0 != .rating) }
-    }
-
-    private var librarySearch: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Title or author", text: $model.query)
-                    .focused($searchFocused)
-                    .autocorrectionDisabled()
-                    .submitLabel(.search)
-                    .onSubmit { searchFocused = false }
-                    .accessibilityIdentifier("library-search")
-                if !model.query.isEmpty {
-                    Button { model.query = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                    }
-                    .accessibilityLabel("Clear Search")
+        return Menu {
+            Picker("Sort By", selection: sortSelection) {
+                ForEach(sortOptions) { sort in
+                    Text(isWishlist && sort == .added ? "Recently Saved" : sort.label).tag(sort)
                 }
             }
-            .padding(.horizontal, 14)
-            .frame(minHeight: 48)
-            .foregroundStyle(.primary)
-            .modifier(LibraryControlSurface())
-
-            filterMenu
-
-            Menu {
-                Picker("Sort By", selection: sortSelection) {
-                    ForEach(sortOptions) { sort in
-                        Text(model.filter == .wishlist && sort == .added ? "Recently Saved" : sort.label).tag(sort)
-                    }
-                }
-                if model.filter != .wishlist {
-                    Divider()
-                    ForEach(LibraryLayout.allCases, id: \.self) { option in
-                        Button {
-                            layout = option
-                        } label: {
-                            if layout == option {
-                                Label(option.rawValue, systemImage: "checkmark")
-                            } else {
-                                Text(option.rawValue)
-                            }
+            if !isWishlist {
+                Divider()
+                ForEach(LibraryLayout.allCases, id: \.self) { option in
+                    Button {
+                        layout = option
+                    } label: {
+                        if layout == option {
+                            Label(option.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(option.rawValue)
                         }
-                        .accessibilityAddTraits(layout == option ? .isSelected : [])
                     }
+                    .accessibilityAddTraits(layout == option ? .isSelected : [])
                 }
-            } label: {
-                Image(systemName: "arrow.up.arrow.down")
-                    .font(.title3)
-                    .frame(width: 48, height: 48)
-                    .foregroundStyle(.primary)
-                    .modifier(LibraryControlSurface())
             }
-            .menuOrder(.fixed)
-            .accessibilityLabel("Sort")
-            .disabled(model.filter != .wishlist && model.books.isEmpty)
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+                .font(.title3)
+                .frame(width: 48, height: 48)
+                .foregroundStyle(.primary)
+                .modifier(LibraryControlSurface())
         }
-        .padding(.horizontal)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
+        .menuOrder(.fixed)
+        .accessibilityLabel("Sort")
+        .disabled(disabled)
     }
 
-    /// Filters the library by shelf, with ways to add, rename and delete shelves.
+    private var genreMenu: some View {
+        let counts = model.genreCounts
+        let selected = model.genreFilter
+        let isFiltered = selected != .all
+        let genres = BookGenre.allCases
+            .map(LibraryGenreFilter.genre)
+            .filter { counts[$0] != nil || $0 == selected }
+            .sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
+
+        return Menu {
+            Picker("Genres", selection: $model.genreFilter) {
+                Text("All Genres (\(counts[.all, default: 0].formatted()))").tag(LibraryGenreFilter.all)
+                ForEach(genres, id: \.self) { genre in
+                    Text("\(genre.label) (\(counts[genre, default: 0].formatted()))").tag(genre)
+                }
+                if counts[.unclassified] != nil || selected == .unclassified {
+                    Text("\(LibraryGenreFilter.unclassified.label) (\(counts[.unclassified, default: 0].formatted()))")
+                        .tag(LibraryGenreFilter.unclassified)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            HStack(spacing: 5) {
+                Text(isFiltered ? selected.label : "Genres")
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .menuOrder(.fixed)
+        .accessibilityLabel("Genres")
+        .accessibilityValue(selected.label)
+        .accessibilityIdentifier("library-genres")
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(isFiltered ? AppPalette.onAccent : AppPalette.text)
+        .background {
+            Capsule()
+                .fill(isFiltered ? AppPalette.accent : AppPalette.surface)
+                .overlay(Capsule().strokeBorder(isFiltered ? Color.clear : AppPalette.border))
+                .frame(height: 34)
+        }
+    }
+
+    /// Filters the library by genre and shelf, with ways to manage shelves.
     private var shelfBar: some View {
         HStack(spacing: 8) {
+            genreMenu
+                .padding(.leading)
+            Rectangle()
+                .fill(AppPalette.border)
+                .frame(width: 1, height: 17)
+                .accessibilityHidden(true)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     shelfChip("All Books", count: model.books.count, id: "all", selected: model.activeShelf == nil) {
@@ -458,7 +566,7 @@ struct LibraryView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal)
+                .padding(.trailing)
                 .padding(.vertical, 1)
             }
             if let shelf = model.activeShelf {
@@ -606,9 +714,9 @@ struct LibraryView: View {
         .accessibilityAction(named: "Book Details") { showDetails(for: book) }
     }
 
-    private func bookCard(_ book: Book) -> some View {
+    private func bookCard(_ book: Book, isSelecting: Bool) -> some View {
         ZStack(alignment: .topTrailing) {
-            if selecting {
+            if isSelecting {
                 selectableBook(book, layout: .card)
             } else {
                 NavigationLink(value: Route.reader(book.id)) {
@@ -705,6 +813,15 @@ struct ReadingStatusOptions: View {
 }
 
 /// Keep the original system glass/pill treatment after moving the controls.
+private struct LibrarySearchRowSpacing: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .padding(.bottom, 10)
+    }
+}
+
 private struct LibraryControlSurface: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {

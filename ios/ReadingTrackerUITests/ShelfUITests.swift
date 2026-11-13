@@ -157,6 +157,94 @@ final class ShelfUITests: XCTestCase {
         XCTAssertFalse(book(pdfTitle, in: app).exists)
     }
 
+    func testGenreMenuFiltersLibraryAndClearsWithoutResettingSearch() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-reset-library", "-import-samples", "-open-library-fixtures"]
+        app.launch()
+        XCTAssertTrue(book(pdfTitle, in: app).waitForExistence(timeout: 15))
+        XCTAssertTrue(book(epubTitle, in: app).waitForExistence(timeout: 5))
+
+        let genres = app.buttons["library-genres"]
+        let science = menuItem("Science & Tech (1)", in: app)
+        let deadline = Date().addingTimeInterval(15)
+        repeat {
+            genres.tap()
+            if science.waitForExistence(timeout: 1) { break }
+            menuItem("All Genres (2)", in: app).tap()
+        } while Date() < deadline
+        XCTAssertTrue(science.exists)
+        science.tap()
+        XCTAssertEqual(genres.value as? String, "Science & Tech")
+        XCTAssertTrue(book(pdfTitle, in: app).exists)
+        XCTAssertFalse(book(epubTitle, in: app).exists)
+
+        let search = app.textFields["library-search"]
+        search.tap()
+        search.typeText("Lighthouse\n")
+        XCTAssertTrue(app.staticTexts["No books match this genre filter."].waitForExistence(timeout: 5))
+        genres.tap()
+        let allGenres = menuItem("All Genres (1)", in: app)
+        XCTAssertTrue(allGenres.waitForExistence(timeout: 5))
+        allGenres.tap()
+        XCTAssertEqual(genres.value as? String, "All Genres")
+        XCTAssertEqual(search.value as? String, "Lighthouse")
+        XCTAssertTrue(book(epubTitle, in: app).exists)
+        XCTAssertFalse(book(pdfTitle, in: app).exists)
+    }
+
+    func testBookDetailsGenreUsesLibraryControlsWithIndependentSearch() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-reset-library", "-import-samples", "-open-library-fixtures"]
+        app.launch()
+        let pdf = book(pdfTitle, in: app)
+        XCTAssertTrue(pdf.waitForExistence(timeout: 15))
+
+        let search = app.textFields["library-search"]
+        search.tap()
+        search.typeText("Field\n")
+        app.buttons["Sort"].tap()
+        menuItem("Card", in: app).tap()
+        let moreActions = app.buttons["More actions for \(pdfTitle)"]
+        moreActions.tap()
+        menuItem("Book Details", in: app).tap()
+        let details = app.navigationBars["Book Details"]
+        XCTAssertTrue(details.waitForExistence(timeout: 5))
+        let genreChip = app.buttons["Science & Tech"]
+        for _ in 0..<4 where !genreChip.isHittable { app.scrollViews.firstMatch.swipeUp() }
+        XCTAssertTrue(genreChip.isHittable)
+        genreChip.tap()
+
+        let genre = app.navigationBars["Science & Tech"]
+        XCTAssertTrue(genre.waitForExistence(timeout: 5))
+        XCTAssertEqual(search.value as? String, "Title or author")
+        XCTAssertTrue(pdf.exists)
+        XCTAssertFalse(book(epubTitle, in: app).exists)
+
+        app.buttons["Sort"].tap()
+        let rating = menuItem("Rating", in: app)
+        XCTAssertTrue(rating.waitForExistence(timeout: 5))
+        rating.tap()
+        app.buttons["Sort"].tap()
+        menuItem("Grid", in: app).tap()
+        XCTAssertTrue(pdf.exists)
+        XCTAssertFalse(moreActions.exists)
+
+        search.tap()
+        search.typeText("Lighthouse\n")
+        XCTAssertTrue(app.staticTexts["No books match “Lighthouse”."].waitForExistence(timeout: 5))
+        XCTAssertFalse(pdf.exists)
+        app.buttons["Clear Search"].tap()
+        XCTAssertTrue(pdf.exists)
+
+        genre.buttons.firstMatch.tap()
+        XCTAssertTrue(details.waitForExistence(timeout: 5))
+        details.buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Library"].waitForExistence(timeout: 5))
+        XCTAssertEqual(search.value as? String, "Field")
+        XCTAssertTrue(pdf.exists)
+        XCTAssertFalse(moreActions.exists)
+    }
+
     func testBookDetailsBackPreservesShelfSearchAndScroll() {
         let app = XCUIApplication()
         app.launchArguments = ["-reset-library", "-import-samples", "-layout-samples", "-open-library-fixtures"]

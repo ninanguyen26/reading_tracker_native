@@ -8,6 +8,7 @@ struct BookDetailsScreen: View {
     let onRead: () -> Void
     let onDeleted: () -> Void
     let onOpenBook: (String) -> Void
+    let onOpenGenre: (BookGenre) -> Void
     let onOpenReaction: (BookReaction) -> Void
     @EnvironmentObject private var environment: AppEnvironment
     @State private var showingLookup = false
@@ -35,7 +36,7 @@ struct BookDetailsScreen: View {
 
     init(book: Book, coverURL: URL?, fromReader: Bool, libraryBooks: [Book],
          onRead: @escaping () -> Void, onDeleted: @escaping () -> Void, onOpenBook: @escaping (String) -> Void,
-         onOpenReaction: @escaping (BookReaction) -> Void) {
+         onOpenGenre: @escaping (BookGenre) -> Void, onOpenReaction: @escaping (BookReaction) -> Void) {
         _book = State(initialValue: book)
         self.coverURL = coverURL
         self.fromReader = fromReader
@@ -43,6 +44,7 @@ struct BookDetailsScreen: View {
         self.onRead = onRead
         self.onDeleted = onDeleted
         self.onOpenBook = onOpenBook
+        self.onOpenGenre = onOpenGenre
         self.onOpenReaction = onOpenReaction
     }
     private var languages: [String] { BookDetailsText.nonempty(book.languages) }
@@ -471,7 +473,12 @@ struct BookDetailsScreen: View {
                 if book.genres.isEmpty {
                     detailChip("Unclassified")
                 }
-                ForEach(book.genres) { detailChip($0.displayName) }
+                ForEach(book.genres) { genre in
+                    Button { onOpenGenre(genre) } label: {
+                        detailChip(genre.displayName, interactive: true)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .detailsCard()
@@ -828,13 +835,15 @@ func hardcoverRatingRow(_ rating: Double, count: Int) -> some View {
         .accessibilityLabel("Hardcover rating, \(average) out of 5, \(countLabel)")
 }
 
-func detailChip(_ text: String) -> some View {
+func detailChip(_ text: String, interactive: Bool = false) -> some View {
     Text(text)
         .font(.caption)
-        .foregroundStyle(AppPalette.text)
+        .foregroundStyle(interactive ? AppPalette.accent : AppPalette.text)
         .padding(.horizontal, 10).padding(.vertical, 7)
         .background(AppPalette.secondarySurface, in: RoundedRectangle(cornerRadius: 8))
         .fixedSize(horizontal: false, vertical: true)
+        .frame(minHeight: interactive ? 44 : nil)
+        .contentShape(Rectangle())
 }
 
 struct DetailsHeaderActionStyle: ButtonStyle {

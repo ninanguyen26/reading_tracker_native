@@ -13,6 +13,18 @@ enum LibraryFilter: Equatable {
     }
 }
 
+enum LibraryGenreFilter: Hashable {
+    case all, genre(BookGenre), unclassified
+
+    var label: String {
+        switch self {
+        case .all: "All Genres"
+        case .genre(let genre): genre.displayName
+        case .unclassified: "Unclassified"
+        }
+    }
+}
+
 /// State for the library screen: the book list, shelves, search, sort, and imports.
 @MainActor
 final class LibraryModel: ObservableObject {
@@ -20,6 +32,7 @@ final class LibraryModel: ObservableObject {
     @Published private(set) var loaded = false
     @Published var query = ""
     @Published var filter: LibraryFilter = .all
+    @Published var genreFilter: LibraryGenreFilter = .all
     @Published var sort: LibrarySort {
         didSet { UserDefaults.standard.set(sort.rawValue, forKey: Self.sortKey) }
     }
@@ -81,10 +94,34 @@ final class LibraryModel: ObservableObject {
         return nil
     }
 
-    var visibleBooks: [Book] {
+    private var booksBeforeGenreFilter: [Book] {
         let books = booksOnActiveShelf.matching(query)
-        return (readingStatusFilter.map { status in books.filter { $0.readingStatus == status } } ?? books)
-            .sorted(by: sort)
+        return readingStatusFilter.map { status in books.filter { $0.readingStatus == status } } ?? books
+    }
+
+    var genreCounts: [LibraryGenreFilter: Int] {
+        let books = booksBeforeGenreFilter
+        var counts: [LibraryGenreFilter: Int] = [.all: books.count]
+        for book in books {
+            if book.genres.isEmpty {
+                counts[.unclassified, default: 0] += 1
+            }
+            for genre in Set(book.genres) {
+                counts[.genre(genre), default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    var visibleBooks: [Book] {
+        let books = booksBeforeGenreFilter
+        let matchingBooks: [Book]
+        switch genreFilter {
+        case .all: matchingBooks = books
+        case .genre(let genre): matchingBooks = books.filter { $0.genres.contains(genre) }
+        case .unclassified: matchingBooks = books.filter { $0.genres.isEmpty }
+        }
+        return matchingBooks.sorted(by: sort)
     }
 
     func select(_ shelf: Shelf?) {
