@@ -267,31 +267,66 @@ struct LibraryView: View {
                 }
             }
         case .home:
-            if model.books.isEmpty {
-                EmptyLibraryView { showingImporter = true }
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        importStatus
-                        Text("Pick up a book")
-                            .font(.system(.title2, design: .serif).weight(.semibold))
-                        Text("Your next chapter is waiting.")
-                            .foregroundStyle(AppPalette.secondaryText)
-                        LazyVGrid(columns: columns, spacing: 28) {
-                            ForEach(Array(model.books.sorted(by: .recent).prefix(4))) { book in
-                                bookLink(book, usesLibraryLayout: false)
-                            }
-                        }
-                    }
-                    .padding()
-                }
-                .accessibilityIdentifier("home-scroll")
-            }
+            homeContent
         case .stats:
             LibraryStatsView(books: model.books)
         case .settings:
             AppSettingsView()
         }
+    }
+
+    private var homeContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                importStatus
+                if let book = model.books.filter({ $0.readingStatus == .reading }).sorted(by: .recent).first {
+                    Text("Continue Reading")
+                        .font(.system(.title2, design: .serif).weight(.semibold))
+                        .accessibilityAddTraits(.isHeader)
+                    NavigationLink(value: Route.reader(book.id)) {
+                        HStack(spacing: 14) {
+                            BookCoverView(book: book, coverURL: model.coverURL(for: book), showsPlaceholderTitle: false)
+                                .frame(width: 72)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(book.title)
+                                    .font(.headline)
+                                Text(book.author)
+                                    .font(.subheadline)
+                                    .foregroundStyle(AppPalette.secondaryText)
+                                Text(book.progression.formatted(.percent.precision(.fractionLength(0))) + " read")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(AppPalette.secondaryText)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            Image(systemName: "chevron.right")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppPalette.secondaryText)
+                        }
+                        .padding(12)
+                        .background(AppPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+                        .contentShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("book-\(book.title)")
+                } else if model.loaded && model.importing.isEmpty {
+                    if model.books.isEmpty {
+                        EmptyLibraryView { showingImporter = true }
+                    } else {
+                        Text("Nothing in progress")
+                            .font(.system(.title2, design: .serif).weight(.semibold))
+                            .accessibilityAddTraits(.isHeader)
+                        Button("Browse Library") { selectedTab = .library }
+                            .buttonStyle(AppPrimaryButtonStyle())
+                    }
+                }
+                if model.loaded {
+                    HomeDiscoverSection(library: model.books)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+        }
+        .accessibilityIdentifier("home-scroll")
     }
 
     private var filterMenu: some View {
@@ -558,9 +593,9 @@ struct LibraryView: View {
         .contentShape(Rectangle())
     }
 
-    private func bookLink(_ book: Book, usesLibraryLayout: Bool = true) -> some View {
+    private func bookLink(_ book: Book) -> some View {
         NavigationLink(value: Route.reader(book.id)) {
-            BookCell(book: book, coverURL: model.coverURL(for: book), usesLibraryLayout: usesLibraryLayout)
+            BookCell(book: book, coverURL: model.coverURL(for: book))
         }
         .buttonStyle(.plain)
         .contextMenu { bookActions(book) }
@@ -679,7 +714,6 @@ private struct LibraryControlSurface: ViewModifier {
 private struct BookCell: View {
     let book: Book
     let coverURL: URL?
-    var usesLibraryLayout = true
     var layout: LibraryLayout = .grid
     /// Set while selecting books: whether this one is selected.
     var selected: Bool?
@@ -690,14 +724,8 @@ private struct BookCell: View {
         progress.formatted(.percent.precision(.fractionLength(0)))
     }
 
-    private var homeProgressLabel: String {
-        if book.progression == 0 && book.readingStatus == .tbr { return "New" }
-        return progressPercentage
-    }
-
     private var bookAccessibilityLabel: String {
         let name = "\(book.title), by \(book.author)"
-        guard usesLibraryLayout else { return "\(name), \(homeProgressLabel)" }
         let rating = book.personalRatingQuarterStars.map { "\(personalRatingNumber($0)) out of 5 stars" } ?? "Unrated"
         return "\(name), \(rating), \(progressPercentage) read"
     }
@@ -737,33 +765,16 @@ private struct BookCell: View {
     private var gridContent: some View {
         VStack(alignment: .leading, spacing: 6) {
             cover
-            if usesLibraryLayout {
-                HStack(spacing: 6) {
-                    ratingStars
-                    Spacer(minLength: 0)
-                    progressBadge
-                }
-            } else {
-                bookTitle
-                bookAuthor
-                progressBar(label: homeProgressLabel)
+            HStack(spacing: 6) {
+                ratingStars
+                Spacer(minLength: 0)
+                progressBadge
             }
         }
     }
 
     private var cover: some View {
-        BookCoverView(book: book, coverURL: coverURL, showsPlaceholderTitle: !usesLibraryLayout)
-            .overlay(alignment: .topLeading) {
-                if !usesLibraryLayout {
-                    Text(book.format.label)
-                        .font(.system(size: 9, weight: .bold))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 3))
-                        .foregroundStyle(.white)
-                        .padding(6)
-                }
-            }
+        BookCoverView(book: book, coverURL: coverURL, showsPlaceholderTitle: false)
             .overlay(alignment: .topTrailing) {
                 if let selected {
                     Image(systemName: selected ? "checkmark.circle.fill" : "circle")

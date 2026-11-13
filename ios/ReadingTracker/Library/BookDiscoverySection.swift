@@ -448,8 +448,11 @@ struct WishlistImportReview: View {
     }
 }
 
-private struct DiscoveryBookPreview: View {
+struct DiscoveryBookPreview: View {
     let book: DiscoveryBook
+    var recommendationReason: String? = nil
+    var likedRecommendation = false
+    var onRecommendationFeedback: ((RecommendationFeedback) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var environment: AppEnvironment
     @State private var metadata: DiscoveryPreviewMetadata?
@@ -457,6 +460,7 @@ private struct DiscoveryBookPreview: View {
     @State private var isSaved: Bool?
     @State private var updatingWishlist = false
     @State private var wishlistError: String?
+    @State private var liked = false
 
     private var synopsis: String? { fallbackSynopsis ?? BookDetailsText.previewSynopsis(book.description) }
     private var language: String? {
@@ -473,6 +477,11 @@ private struct DiscoveryBookPreview: View {
                             Text(book.title).font(.title3.weight(.semibold))
                             if !book.author.isEmpty { Text(book.author).foregroundStyle(AppPalette.secondaryText) }
                             wishlistButton
+                        }
+                    }
+                    if let recommendationReason {
+                        section("Why this pick?") {
+                            Text(recommendationReason).font(.subheadline)
                         }
                     }
                     if let synopsis {
@@ -509,6 +518,12 @@ private struct DiscoveryBookPreview: View {
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .clipped()
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if let onRecommendationFeedback {
+                    feedbackBar(onRecommendationFeedback)
+                }
+            }
             .background(AppPalette.background)
             .navigationTitle("Book Preview")
             .navigationBarTitleDisplayMode(.inline)
@@ -524,15 +539,70 @@ private struct DiscoveryBookPreview: View {
                 Text(wishlistError ?? "")
             }
         }
+        .onAppear { liked = likedRecommendation }
         .task { await updateWishlist() }
         .task(id: book.id) {
             let fetched = try? await BookDiscoveryClient.preview(for: book.id)
             guard !Task.isCancelled else { return }
             metadata = fetched
-            if synopsis == nil, let language {
+            if synopsis == nil, onRecommendationFeedback != nil,
+               let isbn = book.isbns.first,
+               let details = try? await HardcoverClient.shared.metadata(matchingISBN: isbn),
+               details.bookID == book.id, !Task.isCancelled {
+                fallbackSynopsis = BookDetailsText.previewSynopsis(details.description)
+            }
+            if synopsis == nil, let language, !Task.isCancelled {
                 let fallback = try? await OpenLibraryClient.shared.previewSynopsis(for: book, language: language)
                 if !Task.isCancelled { fallbackSynopsis = fallback }
             }
+        }
+    }
+
+    private func feedbackBar(_ onFeedback: @escaping (RecommendationFeedback) -> Void) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                feedbackButtons(onFeedback, stacked: true)
+            }
+            VStack(spacing: 0) {
+                feedbackButtons(onFeedback, stacked: false)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(AppPalette.surface, ignoresSafeAreaEdges: .bottom)
+        .overlay(alignment: .top) { Divider() }
+    }
+
+    private func feedbackButtons(_ onFeedback: @escaping (RecommendationFeedback) -> Void, stacked: Bool) -> some View {
+        ForEach(RecommendationFeedback.allCases, id: \.self) { action in
+            let selected = action == .moreLikeThis && liked
+            Button {
+                if action == .moreLikeThis { liked.toggle() }
+                onFeedback(action)
+            } label: {
+                let layout = stacked ? AnyLayout(VStackLayout(spacing: 5)) : AnyLayout(HStackLayout(spacing: 8))
+                layout {
+                    Image(systemName: selected ? "hand.thumbsup.fill" : action.symbol)
+                        .font(.body.weight(.semibold))
+                        .overlay(alignment: .bottomTrailing) {
+                            if action == .alreadyRead {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .background(AppPalette.surface, in: Circle())
+                                    .offset(x: 3, y: 2)
+                            }
+                        }
+                    Text(action.label)
+                        .font(.caption.weight(.semibold))
+                }
+                .fixedSize(horizontal: stacked, vertical: false)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+                .foregroundStyle(selected ? AppPalette.accent : AppPalette.text)
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .accessibilityIdentifier("discover-feedback-\(action.rawValue)")
         }
     }
 
@@ -587,7 +657,7 @@ private struct DiscoveryBookPreview: View {
     }
 }
 
-private struct DiscoveryCover: View {
+struct DiscoveryCover: View {
     let book: DiscoveryBook
     var showsPlaceholderTitle = true
     @State private var sourceIndex = 0

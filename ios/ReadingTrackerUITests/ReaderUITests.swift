@@ -84,6 +84,8 @@ final class ReaderUITests: XCTestCase {
 
         app.buttons["tab-home"].tap()
         XCTAssertTrue(app.staticTexts["home-title"].exists)
+        XCTAssertFalse(book(epubTitle, in: app).exists)
+        app.buttons["Browse Library"].tap()
         XCTAssertTrue(book(epubTitle, in: app).exists)
         app.buttons["tab-stats"].tap()
         XCTAssertTrue(app.navigationBars["Stats"].exists)
@@ -122,16 +124,87 @@ final class ReaderUITests: XCTestCase {
         XCTAssertLessThanOrEqual(lastLibraryBook.frame.maxY, homeTab.frame.minY)
         captureDetails("Library Bottom Clearance", in: app)
 
+        app.scrollViews["library-scroll"].swipeDown()
+        book(pdfTitle, in: app).tap()
+        waitForProgress(in: app, matching: "Page 1 of .*")
+        turnPage(in: app)
+        waitForProgress(in: app, matching: "Page 2 of .*")
+        goBack(in: app)
         homeTab.tap()
         XCTAssertLessThanOrEqual(app.staticTexts["home-title"].frame.height, 32)
         let home = app.scrollViews["home-scroll"]
         XCTAssertLessThanOrEqual(home.frame.maxY, homeTab.frame.minY)
-        home.swipeUp()
-        let lastHomeBook = app.buttons.matching(identifier: "book-\(epubTitle)").element(boundBy: 1)
-        XCTAssertTrue(lastHomeBook.waitForExistence(timeout: 5))
-        XCTAssertLessThanOrEqual(lastHomeBook.frame.maxY, homeTab.frame.minY)
+        let resume = book(pdfTitle, in: app)
+        XCTAssertTrue(resume.waitForExistence(timeout: 5))
+        XCTAssertFalse(book(epubTitle, in: app).exists)
+        XCTAssertLessThanOrEqual(resume.frame.maxY, homeTab.frame.minY)
         XCTAssertLessThanOrEqual(app.frame.maxY - homeTab.frame.maxY, 45)
         captureDetails("Home Bottom Clearance", in: app)
+        resume.tap()
+        waitForProgress(in: app, matching: "Page 2 of .*")
+    }
+
+    func testDiscoverFeedbackAndWishlist() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-reset-library", "-open-library-fixtures"]
+        app.launch()
+        app.buttons["tab-home"].tap()
+        let covers = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "discover-cover-"))
+        let first = covers.firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 8))
+        XCTAssertEqual(covers.count, 5)
+        let firstID = first.identifier
+        let firstTitle = first.label
+        first.tap()
+        XCTAssertTrue(app.navigationBars["Book Preview"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Why this pick?"].exists)
+        let like = app.buttons["discover-feedback-moreLikeThis"]
+        let dislike = app.buttons["discover-feedback-notForMe"]
+        let read = app.buttons["discover-feedback-alreadyRead"]
+        XCTAssertTrue(like.isHittable)
+        XCTAssertTrue(dislike.isHittable)
+        XCTAssertTrue(read.isHittable)
+        captureDetails("Discover preview", in: app)
+        like.tap()
+        XCTAssertTrue(like.isSelected)
+        read.tap()
+        XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons[firstID].exists)
+        XCTAssertEqual(covers.count, 5)
+        app.buttons["Undo"].tap()
+        XCTAssertTrue(app.buttons[firstID].exists)
+        app.buttons[firstID].tap()
+        XCTAssertTrue(like.waitForExistence(timeout: 5))
+        XCTAssertTrue(like.isSelected)
+        app.buttons["Save to Wishlist"].tap()
+        XCTAssertTrue(app.buttons["Saved"].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap()
+        XCTAssertFalse(app.buttons[firstID].exists)
+        XCTAssertEqual(covers.count, 5)
+
+        let second = covers.firstMatch
+        let secondID = second.identifier
+        second.tap()
+        XCTAssertTrue(dislike.waitForExistence(timeout: 5))
+        dislike.tap()
+        XCTAssertTrue(app.buttons["Undo"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons[secondID].exists)
+
+        app.buttons["tab-library"].tap()
+        filterLibrary("Wishlist", in: app)
+        let saved = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", firstTitle + ", by ")).firstMatch
+        XCTAssertTrue(saved.waitForExistence(timeout: 5))
+        saved.tap()
+        XCTAssertTrue(app.buttons["Saved"].waitForExistence(timeout: 5))
+        XCTAssertFalse(read.exists)
+
+        app.terminate()
+        app.launchArguments = ["-open-library-fixtures"]
+        app.launch()
+        app.buttons["tab-home"].tap()
+        XCTAssertTrue(covers.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons[firstID].exists)
+        XCTAssertFalse(app.buttons[secondID].exists)
     }
 
     func testPaletteInLightAndDarkAppearance() {

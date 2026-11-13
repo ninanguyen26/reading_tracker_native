@@ -58,6 +58,38 @@ final class LibraryTests: XCTestCase {
         XCTAssertFalse(isStillSaved)
     }
 
+    func testDiscoverUsesPersonalRatingsAndExcludesKnownBooks() throws {
+        let catalog = RecommendationCandidate.starterCatalog
+        let piranesi = try XCTUnwrap(catalog.first { $0.book.title == "Piranesi" })
+        let dune = try XCTUnwrap(catalog.first { $0.book.title == "Dune" })
+        let beachRead = try XCTUnwrap(catalog.first { $0.book.title == "Beach Read" })
+        let favorite = Book(id: "favorite", title: "Favorite Space Novel", author: "Avery Quinn", format: .epub,
+                            fileName: "favorite.epub", genres: [.scienceFiction], size: 0, addedAt: .now,
+                            progression: 1, personalRatingQuarterStars: 20)
+        let owned = Book(id: "owned", title: "Dune", author: "Frank Herbert", format: .epub,
+                         fileName: "owned.epub", size: 0, addedAt: .now, progression: 0)
+        let ranked = HomeRecommendations.ranked(library: [favorite, owned], wishlist: [piranesi.book],
+                                                feedback: [beachRead.id: .alreadyRead])
+        XCTAssertGreaterThanOrEqual(ranked.count, HomeRecommendations.count)
+        XCTAssertEqual(Set(ranked.map(\.id)).count, ranked.count)
+        XCTAssertFalse(ranked.contains { [piranesi.id, dune.id, beachRead.id].contains($0.id) })
+        XCTAssertTrue(try XCTUnwrap(ranked.first).candidate.genres.contains("Science Fiction"))
+        XCTAssertNil(try XCTUnwrap(ranked.first).reason)
+        let remaining = HomeRecommendations.ranked(library: [favorite, owned], wishlist: [piranesi.book], feedback: [:])
+            .filter { $0.id != beachRead.id }
+        XCTAssertEqual(ranked.map(\.id).first, remaining.map(\.id).first)
+    }
+
+    func testDiscoverExplainsSpecificConnectionsToBooksTheReaderLiked() throws {
+        let circe = try XCTUnwrap(RecommendationCandidate.starterCatalog.first { $0.book.title == "Circe" })
+        let mythology = Book(id: "mythology", title: "Mythology Favorite", author: "Avery Quinn", format: .epub,
+                             fileName: "favorite.epub", subjects: ["Greek mythology"], size: 0, addedAt: .now,
+                             progression: 1, personalRatingQuarterStars: 20)
+        let reason = HomeRecommendations.ranked(candidates: [circe], library: [mythology], wishlist: [], feedback: [:])
+            .first?.reason
+        XCTAssertEqual(reason, "Like “Mythology Favorite”, this book draws on Greek mythology.")
+    }
+
     // MARK: Import
 
     func testImportMovesTheSingleMatchingWishlistISBNAndKeepsTheLocalEdition() async throws {
