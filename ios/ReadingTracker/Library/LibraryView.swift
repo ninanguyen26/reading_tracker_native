@@ -377,6 +377,7 @@ struct LibraryView: View {
                 }
                 if model.loaded {
                     HomeDiscoverSection(library: model.books)
+                    HomeMoodSection(library: model.books)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

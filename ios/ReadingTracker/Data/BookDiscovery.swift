@@ -101,7 +101,13 @@ struct DiscoveryPreviewMetadata: Decodable, Sendable {
     let language: String?
 }
 
+struct MoodBookPage: Decodable, Sendable {
+    let candidates: [RecommendationCandidate]
+    let nextOffset: Int?
+}
+
 enum BookDiscoveryClient {
+    private struct MoodRequest: Encodable { let mood: BookMood; let offset: Int }
     private struct BookID: Encodable { let bookID: Int; var language: String? = nil }
     private struct Lookup: Encodable { let isbn: String?; let title: String; let author: String; var language: String? = nil }
     private struct Page: Encodable { let seriesID: Int; let offset: Int; var bookID: Int? = nil; var language: String? = nil }
@@ -146,6 +152,10 @@ enum BookDiscoveryClient {
     static func preview(for bookID: Int) async throws -> DiscoveryPreviewMetadata? {
         let response: PreviewResponse = try await request("preview", body: BookID(bookID: bookID), legacyBody: nil)
         return response.preview
+    }
+
+    static func books(for mood: BookMood, offset: Int) async throws -> MoodBookPage {
+        try await request("mood-books", body: MoodRequest(mood: mood, offset: offset), legacyBody: nil)
     }
 
     private static func request<Body: Encodable, Result: Decodable>(

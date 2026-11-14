@@ -9,6 +9,9 @@ mobile app, cron job, URL, or logs. `PORT` is supplied by Render.
 - `GET /health`: minimal health response; never calls Hardcover.
 - `POST /v1/metadata`: JSON with `isbn`, `title`, `author`; returns `{metadata: ...}`
   or `{metadata: null}` when there is no unique match. No user sign-in.
+- `POST /v1/mood-books`: JSON with a supported lowercase `mood` and optional
+  `offset`. Returns up to 48 canonical Hardcover books and the next offset.
+  The app filters and ranks these results locally.
 - `/v1/metadata` accepts only those identifiers and runs fixed catalog queries.
   Arbitrary GraphQL, user data access, and uploads are unsupported.
 

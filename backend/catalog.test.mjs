@@ -15,6 +15,22 @@ function setup(responder,options={}) {
   return {catalog,requests};
 }
 const result = data => Response.json({data});
+test('mood catalog pages canonical Hardcover works and verifies mood tags before returning cards', async () => {
+  const matching = {...book,cached_tags:{Genre:['Fantasy'],Mood:[{tag:'Funny'}]}};
+  const {catalog,requests} = setup(() => result({books:[matching,book,
+    ...Array.from({length:47},(_, index) => ({...matching,id:100+index}))]}));
+  const page = await catalog.moodBooks({mood:'funny'});
+  assert.equal(page.nextOffset,48);
+  assert.equal(page.candidates.length,47);
+  assert.deepEqual(page.candidates[0].moods,['Funny']);
+  assert.equal(page.candidates[0].book.description,null);
+  assert.deepEqual(requests[0].body.variables,{mood:'funny',offset:0});
+  assert.match(requests[0].body.query,/taggable_counts.*category.*Mood/);
+  await catalog.moodBooks({mood:'funny'});
+  assert.equal(requests.length,1);
+  await assert.rejects(() => catalog.moodBooks({mood:'%'}),{status:400});
+  await assert.rejects(() => catalog.moodBooks({mood:'funny',offset:1}),{status:400});
+});
 test('lookup and preview return the full catalog description', async () => {
   const description = 'A long synopsis. '.repeat(2100) + 'The final sentence.';
   const {catalog, requests} = setup(() => result({books: [{...book, description}]}));
@@ -268,5 +284,8 @@ test('health does not call Hardcover; public HTTP lookup returns sanitized metad
     assert.equal(invalidPreview.status,400);
     const invalidPage=await fetch(url+'/v1/series',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"seriesID":5,"offset":-1}'});
     assert.equal(invalidPage.status,400);
+    const mood=await fetch(url+'/v1/mood-books',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"mood":"dark"}'});
+    assert.equal(mood.status,200);
+    assert.equal((await mood.json()).candidates[0].book.id,42);
   } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });

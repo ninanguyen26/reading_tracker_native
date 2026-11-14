@@ -75,11 +75,17 @@ function metadata(record, edition = null, matchedISBN = null) {
 }
 
 const previewCount = 6;
+const moodPageSize = 48;
+const bookMoods = new Set([
+  'adventurous', 'challenging', 'dark', 'emotional', 'funny', 'hopeful', 'informative',
+  'inspiring', 'lighthearted', 'mysterious', 'reflective', 'relaxing', 'sad', 'tense'
+]);
 const seriesPageSize = 24;
 const seriesBatchSize = 100;
 const authorRole = '_or:[{contribution:{_is_null:true}},{contribution:{_eq:"Author"}},{contribution:{_eq:"author"}}]';
-const cardFields = 'id title description cached_image default_cover_edition { isbn_13 isbn_10 } ' +
+const cardIdentityFields = 'id title cached_image default_cover_edition { isbn_13 isbn_10 } ' +
   'contributions(where:{' + authorRole + '},limit:4) { author { name } }';
+const cardFields = cardIdentityFields + ' description';
 const seriesOrder = 'order_by:[{position:asc_nulls_last},{book_id:asc},{id:asc}]';
 const editionLanguage = 'language { code2 code3 }';
 const authorEditionFields = `title isbn_13 isbn_10 cached_image image { url } ${editionLanguage}`;
@@ -243,6 +249,40 @@ export class Catalog {
     }
     return bookID ? this.cached(`discovery:${bookID}:${language}`, () => this.relatedBooks(bookID, language)) : null;
   }
+  async moodBooks(input) {
+    if (!input || typeof input !== 'object' || Array.isArray(input) ||
+        Object.keys(input).some(key => !['mood','offset'].includes(key)) ||
+        !bookMoods.has(input.mood)) throw new CatalogError(400,'invalid_mood_books');
+    const {mood, offset = 0} = input;
+    if (!Number.isInteger(offset) || offset < 0 || offset > 960 || offset % moodPageSize !== 0)
+      throw new CatalogError(400,'invalid_mood_books');
+
+    return this.cached(`mood-books:${mood}:${offset}`, async () => {
+      const result = await this.query(`query MoodBooks($mood:String!, $offset:Int!) {
+        books(where:{
+          canonical_id:{_is_null:true},
+          taggable_counts:{count:{_gt:0},tag:{tag:{_ilike:$mood},tag_category:{category:{_ilike:"Mood"}}}}
+        },order_by:[{users_count:desc_nulls_last},{id:asc}],offset:$offset,limit:${moodPageSize + 1}) {
+          ${cardIdentityFields}
+          cached_tags
+          default_cover_edition { ${authorEditionFields} }
+        }
+      }`, {mood, offset});
+      if (!Array.isArray(result.books)) throw new CatalogError(502,'invalid_catalog_response');
+      const candidates = result.books.slice(0, moodPageSize).flatMap(record => {
+        const moods = moodNames(record.cached_tags?.Mood);
+        if (!moods.some(tag => tag.toLowerCase() === mood)) return [];
+        const book = authorDiscoveryCard(record, '');
+        if (!book) return [];
+        const editionLanguage = record.default_cover_edition?.language;
+        return [{book:{...book, description:null,
+          language:seriesLanguage(editionLanguage?.code2) || seriesLanguage(editionLanguage?.code3) || null},
+          genres:tagNames(record.cached_tags?.Genre), moods}];
+      });
+      return {candidates, nextOffset:result.books.length > moodPageSize && offset < 960 ? offset + moodPageSize : null};
+    });
+  }
+
   async preview(input) {
     if (!input || typeof input !== 'object' || Array.isArray(input) ||
         Object.keys(input).length !== 1 || !validCatalogID(input.bookID)) throw new CatalogError(400,'invalid_preview');

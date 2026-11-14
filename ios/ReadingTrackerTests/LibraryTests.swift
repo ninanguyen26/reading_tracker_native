@@ -125,6 +125,24 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(picks([mythology]).map(\.id), picks([]).map(\.id))
     }
 
+    func testMoodPicksPersonalizeTheSameCatalogPage() throws {
+        let candidates = try JSONDecoder().decode(MoodBookPage.self, from: Data("""
+            {"candidates":[
+              {"book":{"id":101,"title":"Comic Mystery","author":"A. Quinn","isbns":[]},"genres":["Mystery"],"moods":["Funny"]},
+              {"book":{"id":102,"title":"Comic Memoir","author":"J. Lee","isbns":[]},"genres":["Memoir"],"moods":["Funny"]}
+            ],"nextOffset":48}
+            """.utf8)).candidates
+        var favorite = Book(id: "favorite", title: "Favorite", author: "Reader", format: .epub,
+                            fileName: "favorite.epub", hardcoverMoods: ["reflective"], genres: [.mystery],
+                            size: 0, addedAt: .now, progression: 1, readingStatus: .finished)
+        XCTAssertEqual(HomeRecommendations.orderedMoods(library: [favorite]).first, .reflective)
+        XCTAssertEqual(HomeRecommendations.ranked(candidates: candidates, library: [favorite], wishlist: [],
+                                                   feedback: [:]).first?.id, 101)
+        favorite.genres = [.memoir]
+        XCTAssertEqual(HomeRecommendations.ranked(candidates: candidates, library: [favorite], wishlist: [],
+                                                   feedback: [:]).first?.id, 102)
+    }
+
     // MARK: Import
 
     func testImportMovesTheSingleMatchingWishlistISBNAndKeepsTheLocalEdition() async throws {

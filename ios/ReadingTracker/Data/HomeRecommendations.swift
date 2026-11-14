@@ -20,7 +20,7 @@ enum RecommendationFeedback: String, Codable, CaseIterable {
     }
 }
 
-struct RecommendationCandidate: Decodable, Identifiable {
+struct RecommendationCandidate: Decodable, Identifiable, Sendable {
     let book: DiscoveryBook
     let genres: [String]
     let moods: [String]
@@ -120,7 +120,9 @@ struct HomeRecommendations {
         candidates: [RecommendationCandidate] = RecommendationCandidate.starterCatalog,
         library: [Book],
         wishlist: [DiscoveryBook],
-        feedback: [Int: RecommendationFeedback]
+        feedback: [Int: RecommendationFeedback],
+        excluding: Set<Int> = [],
+        limit: Int = .max
     ) -> [HomeRecommendation] {
         var signals = library.compactMap { book -> Signal? in
             if let rating = book.personalRatingQuarterStars {
@@ -155,7 +157,8 @@ struct HomeRecommendations {
         var ranked: [Ranked] = []
         for (index, candidate) in candidates.enumerated() {
             let book = candidate.book
-            guard !knownIDs.contains(book.id), feedback[book.id] != .notForMe, feedback[book.id] != .alreadyRead,
+            guard !knownIDs.contains(book.id), !excluding.contains(book.id),
+                  feedback[book.id] != .notForMe, feedback[book.id] != .alreadyRead,
                   !book.isbns.compactMap(OpenLibraryISBN.equivalenceKey).contains(where: knownISBNs.contains),
                   knownTitles.insert(identity(book.title, book.author)).inserted else { continue }
             let traits = traits(of: candidate)
@@ -186,10 +189,10 @@ struct HomeRecommendations {
 
         // Mix authors and genres within each row of five.
         var result: [HomeRecommendation] = []
-        while !ranked.isEmpty {
+        while !ranked.isEmpty, result.count < limit {
             var authors: [String: Int] = [:]
             var genres: [BookGenre: Int] = [:]
-            for _ in 0..<min(count, ranked.count) {
+            for _ in 0..<min(count, ranked.count, limit - result.count) {
                 func adjusted(_ item: Ranked) -> Double {
                     let repeatGenre = item.traits.genres.map { genres[$0, default: 0] }.max() ?? 0
                     return item.score - Double(authors[item.traits.author, default: 0]) * 8 - Double(repeatGenre) * 2
@@ -206,6 +209,27 @@ struct HomeRecommendations {
             }
         }
         return result
+    }
+
+    static func orderedMoods(library: [Book]) -> [BookMood] {
+        var scores: [BookMood: Double] = [:]
+        for book in library {
+            let weight: Double
+            if let rating = book.personalRatingQuarterStars {
+                let difference = Double(rating) / 4 - 3
+                weight = book.readingStatus == .dnf ? min(0, difference) : difference
+            } else {
+                weight = book.readingStatus == .finished ? 0.45 : 0
+            }
+            let tags = BookDetailsText.hardcoverMoods(book.hardcoverMoods ?? [])
+            for mood in Set(tags.compactMap({ BookMood(rawValue: $0.lowercased()) })) {
+                scores[mood, default: 0] += weight / Double(tags.count)
+            }
+        }
+        let defaults: [BookMood] = [.mysterious, .funny, .reflective, .adventurous, .relaxing]
+        return (defaults + BookMood.allCases.filter { !defaults.contains($0) }).sorted {
+            scores[$0, default: 0] > scores[$1, default: 0]
+        }
     }
 
     private static func traits(of candidate: RecommendationCandidate) -> Traits {
