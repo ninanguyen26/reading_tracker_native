@@ -715,23 +715,39 @@ struct LibraryView: View {
     }
 
     private func bookCard(_ book: Book, isSelecting: Bool) -> some View {
-        ZStack(alignment: .topTrailing) {
+        VStack(spacing: 0) {
             if isSelecting {
                 selectableBook(book, layout: .card)
             } else {
-                NavigationLink(value: Route.reader(book.id)) {
-                    BookCell(book: book, coverURL: model.coverURL(for: book), layout: .card)
-                }
-                .buttonStyle(.plain)
+                ZStack(alignment: .topTrailing) {
+                    NavigationLink(value: Route.reader(book.id)) {
+                        BookCell(book: book, coverURL: model.coverURL(for: book), layout: .card)
+                    }
+                    .buttonStyle(.plain)
 
-                Menu { bookActions(book) } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+                    Menu { bookActions(book, includesDetails: false) } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .menuOrder(.fixed)
+                    .accessibilityLabel("More actions for \(book.title)")
                 }
-                .menuOrder(.fixed)
-                .accessibilityLabel("More actions for \(book.title)")
+
+                HStack(spacing: 8) {
+                    NavigationLink(value: Route.reader(book.id)) {
+                        Label(book.readingStatus == .reading ? "Continue Reading" : "Read Book", systemImage: "book")
+                    }
+                    .buttonStyle(LibraryCardActionStyle(outlined: false))
+
+                    Button { showDetails(for: book) } label: {
+                        Label("Book Details", systemImage: "info.circle")
+                    }
+                    .buttonStyle(LibraryCardActionStyle(outlined: true))
+                }
+                .multilineTextAlignment(.center)
+                .padding([.horizontal, .bottom], 12)
             }
         }
         .background(AppPalette.surface, in: RoundedRectangle(cornerRadius: 12))
@@ -743,9 +759,11 @@ struct LibraryView: View {
         }
     }
 
-    @ViewBuilder private func bookActions(_ book: Book) -> some View {
-        Button { showDetails(for: book) } label: {
-            Label("Book Details", systemImage: "info.circle")
+    @ViewBuilder private func bookActions(_ book: Book, includesDetails: Bool = true) -> some View {
+        if includesDetails {
+            Button { showDetails(for: book) } label: {
+                Label("Book Details", systemImage: "info.circle")
+            }
         }
         Menu {
             ReadingStatusOptions(current: book.readingStatus) { status in
@@ -832,6 +850,24 @@ private struct LibraryControlSurface: ViewModifier {
     }
 }
 
+private struct LibraryCardActionStyle: ButtonStyle {
+    let outlined: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 10)
+        configuration.label
+            .font(.caption.weight(.medium))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .foregroundStyle(AppPalette.accent)
+            .background(outlined ? .clear : AppPalette.accent.opacity(0.12), in: shape)
+            .overlay(shape.strokeBorder(outlined ? AppPalette.border : .clear))
+            .opacity(configuration.isPressed ? 0.8 : 1)
+            .contentShape(shape)
+    }
+}
+
 private struct BookCell: View {
     let book: Book
     let coverURL: URL?
@@ -867,16 +903,18 @@ private struct BookCell: View {
     }
 
     private var cardContent: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
             cover.frame(width: 80)
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
                     bookTitle
                     bookAuthor
                 }
                 .padding(.trailing, selected == nil ? 32 : 0)
-                ratingStars
-                progressBar(label: progressPercentage)
+                VStack(alignment: .leading, spacing: 6) {
+                    ratingStars
+                    progressBar(label: progressPercentage)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -909,8 +947,9 @@ private struct BookCell: View {
 
     private var bookTitle: some View {
         Text(book.title)
-            .font(.subheadline.weight(.medium))
-            .lineLimit(layout == .card ? 1 : 2)
+            .font(.subheadline.weight(layout == .card ? .semibold : .medium))
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
             .multilineTextAlignment(.leading)
     }
 

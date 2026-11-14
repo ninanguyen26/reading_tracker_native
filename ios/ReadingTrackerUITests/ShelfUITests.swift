@@ -205,8 +205,30 @@ final class ShelfUITests: XCTestCase {
         app.buttons["Sort"].tap()
         menuItem("Card", in: app).tap()
         let moreActions = app.buttons["More actions for \(pdfTitle)"]
+        let read = app.buttons["Read Book"]
+        let openDetails = app.buttons["Book Details"]
+        XCTAssertTrue(read.waitForExistence(timeout: 5))
+        XCTAssertTrue(openDetails.exists)
+        XCTAssertLessThan(read.frame.maxX, openDetails.frame.minX)
+        XCTAssertEqual(read.frame.midY, openDetails.frame.midY, accuracy: 1)
+        read.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["reader-progress"].firstMatch.waitForExistence(timeout: 15))
+        let back = app.navigationBars.buttons.firstMatch
+        if !back.exists {
+            app.otherElements["reader-content"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        XCTAssertTrue(back.waitForExistence(timeout: 5))
+        back.tap()
+        XCTAssertTrue(moreActions.waitForExistence(timeout: 5))
         moreActions.tap()
-        menuItem("Book Details", in: app).tap()
+        let changeStatus = menuItem("Change Status", in: app)
+        XCTAssertTrue(changeStatus.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.menuItems["Book Details"].exists)
+        XCTAssertFalse(openDetails.isHittable)
+        changeStatus.tap()
+        menuItem("Reading", in: app).tap()
+        XCTAssertTrue(app.buttons["Continue Reading"].waitForExistence(timeout: 5))
+        openDetails.tap()
         let details = app.navigationBars["Book Details"]
         XCTAssertTrue(details.waitForExistence(timeout: 5))
         let genreChip = app.buttons["Science & Tech"]
