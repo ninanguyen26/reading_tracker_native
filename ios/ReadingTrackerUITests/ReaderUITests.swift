@@ -136,6 +136,24 @@ final class ReaderUITests: XCTestCase {
         XCTAssertLessThanOrEqual(home.frame.maxY, homeTab.frame.minY)
         let resume = book(pdfTitle, in: app)
         XCTAssertTrue(resume.waitForExistence(timeout: 5))
+        let started = app.staticTexts["Started"]
+        let lastRead = app.staticTexts["Last read"]
+        let todayLabels = app.staticTexts.matching(identifier: "Today")
+        let timeRead = app.staticTexts["<1 min"]
+        let changeStatus = app.buttons["Change Status for \(pdfTitle)"]
+        XCTAssertTrue(started.exists)
+        XCTAssertTrue(lastRead.exists)
+        XCTAssertTrue(timeRead.waitForExistence(timeout: 5))
+        XCTAssertTrue(changeStatus.exists)
+        let today = todayLabels.allElementsBoundByIndex.min { $0.frame.minY < $1.frame.minY } ?? todayLabels.firstMatch
+        XCTAssertTrue(today.exists)
+        XCTAssertEqual(started.frame.midY, lastRead.frame.midY, accuracy: 1)
+        XCTAssertEqual(lastRead.frame.midY, today.frame.midY, accuracy: 1)
+        XCTAssertEqual(lastRead.frame.midX - started.frame.midX, today.frame.midX - lastRead.frame.midX, accuracy: 1)
+        XCTAssertEqual(today.frame.midX, timeRead.frame.midX, accuracy: 1)
+        XCTAssertLessThan(today.frame.maxY, timeRead.frame.midY)
+        XCTAssertLessThan(timeRead.frame.maxY, changeStatus.frame.midY)
+        XCTAssertGreaterThan(changeStatus.frame.midX, today.frame.midX - 16)
         XCTAssertFalse(book(epubTitle, in: app).exists)
         XCTAssertLessThanOrEqual(resume.frame.maxY, homeTab.frame.minY)
         XCTAssertLessThanOrEqual(app.frame.maxY - homeTab.frame.maxY, 45)
@@ -430,9 +448,9 @@ final class ReaderUITests: XCTestCase {
         waitForProgress(in: app, matching: "Location 1 of .*", timeout: 30)
         let footer = app.buttons["reader-progress"]
         footer.tap()
-        waitForProgress(in: app, matching: "About 12 min left in chapter")
+        waitForProgress(in: app, matching: "~ 12 min left in chapter")
         footer.tap()
-        waitForProgress(in: app, matching: "About 37 min left in book")
+        waitForProgress(in: app, matching: "~ 37 min left in book")
     }
 
     func testReadsAnEpubAndRemembersThePosition() {

@@ -10,7 +10,7 @@ enum ReadingTime {
         let rounded = Int(minutes.rounded())
         let hours = rounded / 60
         let remainder = rounded % 60
-        return hours == 0 ? "About \(rounded) min" : "About \(hours) hr \(remainder) min"
+        return hours == 0 ? "~ \(rounded) min" : "~ \(hours) hr \(remainder) min"
     }
 }
 

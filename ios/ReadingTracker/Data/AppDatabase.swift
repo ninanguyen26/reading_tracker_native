@@ -190,6 +190,19 @@ final class AppDatabase: Sendable {
                 t.column("savedAt", .datetime).notNull()
             }
         }
+        migrator.registerMigration("v20-reading-start-date") { db in
+            try db.alter(table: "book") { t in
+                t.add(column: "startedReadingAt", .datetime)
+            }
+        }
+        migrator.registerMigration("v21-reading-intervals") { db in
+            try db.create(table: "readingInterval") { t in
+                t.column("bookId", .text).notNull().references("book", onDelete: .cascade)
+                t.column("startedAt", .double).notNull()
+                t.column("endedAt", .double).notNull()
+                t.primaryKey(["bookId", "endedAt"])
+            }
+        }
         return migrator
     }
 
@@ -263,6 +276,30 @@ final class AppDatabase: Sendable {
         }
     }
 
+    func recordReading(id: String, from start: Date, to end: Date) async throws {
+        guard end > start else { return }
+        try await writer.write { db in
+            try db.execute(sql: """
+                INSERT INTO readingInterval (bookId, startedAt, endedAt)
+                SELECT id, ?, ? FROM book WHERE id = ?
+                ON CONFLICT(bookId, endedAt) DO NOTHING
+                """, arguments: [start.timeIntervalSince1970, end.timeIntervalSince1970, id])
+        }
+    }
+
+    func observeReadingTime(id: String, during day: DateInterval) -> AsyncValueObservation<Double> {
+        let start = day.start.timeIntervalSince1970
+        let end = day.end.timeIntervalSince1970
+        return ValueObservation.tracking { db in
+            try Double.fetchOne(db, sql: """
+                SELECT COALESCE(SUM(MIN(endedAt, ?) - MAX(startedAt, ?)), 0)
+                FROM readingInterval
+                WHERE bookId = ? AND endedAt > ? AND startedAt < ?
+                """, arguments: [end, start, id, start, end]) ?? 0
+        }
+        .values(in: writer)
+    }
+
     func saveProgress(id: String, locator: String, progression: Double) async throws {
         try await writer.write { db in
             try db.execute(
@@ -276,10 +313,14 @@ final class AppDatabase: Sendable {
     @discardableResult
     func setReadingStatus(_ status: ReadingStatus, for bookIDs: [String]) async throws -> Book? {
         try await writer.write { db in
+            let startedAt = status == .reading ? Date() : nil
             for id in bookIDs {
                 try db.execute(
-                    sql: "UPDATE book SET readingStatus = ? WHERE id = ? AND readingStatus <> ?",
-                    arguments: [status, id, status]
+                    sql: """
+                        UPDATE book SET readingStatus = ?, startedReadingAt = COALESCE(startedReadingAt, ?)
+                        WHERE id = ? AND readingStatus <> ?
+                        """,
+                    arguments: [status, startedAt, id, status]
                 )
                 if status == .finished, bookIDs.count == 1, db.changesCount > 0 {
                     return try Book.fetchOne(db, key: id)
@@ -307,8 +348,11 @@ final class AppDatabase: Sendable {
     func markReadingIfTBR(id: String) async throws {
         try await writer.write { db in
             try db.execute(
-                sql: "UPDATE book SET readingStatus = ? WHERE id = ? AND readingStatus = ?",
-                arguments: [ReadingStatus.reading, id, ReadingStatus.tbr]
+                sql: """
+                    UPDATE book SET readingStatus = ?, startedReadingAt = COALESCE(startedReadingAt, ?)
+                    WHERE id = ? AND readingStatus = ?
+                    """,
+                arguments: [ReadingStatus.reading, Date(), id, ReadingStatus.tbr]
             )
         }
     }

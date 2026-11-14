@@ -11,6 +11,7 @@ struct ReaderScreen: View {
     private let initialReaction: BookReaction?
     private let onShowDetails: () -> Void
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage(ReaderSettings.showClockStorageKey) private var showClock = false
     @AppStorage(ReaderSettings.FooterDisplay.storageKey) private var footerDisplay: ReaderSettings.FooterDisplay = .location
     @AppStorage(ReaderSettings.readingSpeedStorageKey) private var readingSpeed = ReaderSettings.defaultReadingSpeed
@@ -22,6 +23,14 @@ struct ReaderScreen: View {
     @State private var reactionJumpFailed = false
     @State private var reactionSaveFailed = false
     @State private var compactToolbar = false
+    @State private var isVisible = false
+    @State private var readingSince: Date?
+
+    private var isReading: Bool {
+        guard case .ready = model.state else { return false }
+        return isVisible && scenePhase == .active && sheet == nil && model.editing == nil
+            && !reactionJumpFailed && !reactionSaveFailed
+    }
 
     enum Sheet: Identifiable, Hashable {
         case settings, navigation, search
@@ -162,6 +171,35 @@ struct ReaderScreen: View {
             Button("OK", role: .cancel) {}
         }
         .onChange(of: colorScheme) { model.setSystemDark($0 == .dark) }
+        .onAppear { isVisible = true }
+        .onDisappear {
+            isVisible = false
+            saveReadingTime(continues: false)
+        }
+        .onChange(of: isReading) { reading in
+            if reading {
+                readingSince = Date()
+            } else {
+                saveReadingTime(continues: false)
+            }
+        }
+        .task(id: isReading) {
+            guard isReading else { return }
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(15)) } catch { return }
+                guard !Task.isCancelled, isReading else { return }
+                saveReadingTime(continues: true)
+            }
+        }
+    }
+
+    private func saveReadingTime(continues: Bool) {
+        guard let start = readingSince else { return }
+        let end = Date()
+        readingSince = continues ? end : nil
+        let database = model.environmentDatabase
+        let bookID = model.book.id
+        Task { try? await database.recordReading(id: bookID, from: start, to: end) }
     }
 
     private var readerToolbar: some View {

@@ -511,6 +511,7 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(book.title, "Existing Book")
         XCTAssertEqual(book.progression, 0.42)
         XCTAssertEqual(book.readingStatus, .tbr)
+        XCTAssertNil(book.startedReadingAt)
         XCTAssertEqual(book.locator, #"{"href":"chapter.xhtml"}"#)
         XCTAssertNil(book.description)
         XCTAssertEqual(book.series, [])
@@ -524,13 +525,38 @@ final class LibraryTests: XCTestCase {
         let book = try await importer.importBook(from: fixture("sample", "pdf"))
         try await database.saveProgress(id: book.id, locator: #"{"href":"x"}"#, progression: 1.4)
         try await database.markOpened(id: book.id, at: Date(timeIntervalSince1970: 100))
+        try await database.markReadingIfTBR(id: book.id)
+        let firstReading = try await database.book(id: book.id)
+        let startedAt = try XCTUnwrap(firstReading?.startedReadingAt)
         try await database.setReadingStatus(.dnf, for: [book.id])
+        let abandoned = try await database.book(id: book.id)
+        XCTAssertEqual(abandoned?.readingStatus, .dnf)
+        try await database.setReadingStatus(.reading, for: [book.id])
         let fetched = try await database.book(id: book.id)
         let saved = try XCTUnwrap(fetched)
         XCTAssertEqual(saved.locator, #"{"href":"x"}"#)
         XCTAssertEqual(saved.progression, 1) // clamped
-        XCTAssertEqual(saved.readingStatus, .dnf)
+        XCTAssertEqual(saved.readingStatus, .reading)
+        XCTAssertEqual(saved.startedReadingAt, startedAt)
         XCTAssertEqual(saved.lastOpenedAt, Date(timeIntervalSince1970: 100))
+    }
+
+    func testReadingTimeClipsToDayAndCountsOnlyTheSelectedBook() async throws {
+        let book = try await importer.importBook(from: fixture("sample", "pdf"))
+        let other = try await importer.importBook(from: fixture("sample", "epub"))
+        let midnight = Date(timeIntervalSince1970: 86_400)
+        let day = DateInterval(start: midnight, duration: 86_400)
+        let start = midnight.addingTimeInterval(-60)
+        let end = midnight.addingTimeInterval(30)
+
+        try await database.recordReading(id: book.id, from: start, to: end)
+        try await database.recordReading(id: book.id, from: start, to: end)
+        try await database.recordReading(id: book.id, from: end, to: end.addingTimeInterval(45))
+        try await database.recordReading(id: other.id, from: start, to: end)
+
+        var totals = database.observeReadingTime(id: book.id, during: day).makeAsyncIterator()
+        let total = try await totals.next()
+        XCTAssertEqual(total, 75)
     }
 
     func testPersonalReviewMigratesWholeStarsAndKeepsThoughtsWithoutRating() async throws {

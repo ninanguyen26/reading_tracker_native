@@ -388,16 +388,39 @@ struct LibraryView: View {
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: spacing) {
                 ForEach(books) { book in
-                    NavigationLink(value: Route.reader(book.id)) {
-                        ContinueReadingCard(
-                            book: book,
-                            coverURL: model.coverURL(for: book),
-                            fileURL: model.environment.storage.url(for: book.fileName)
-                        )
-                            .frame(width: min(440, max(0, cardWidth)))
-                            .modifier(BookCardSurface())
+                    VStack(alignment: .leading, spacing: 0) {
+                        NavigationLink(value: Route.reader(book.id)) {
+                            cardCell(book)
+                        }
+                        .buttonStyle(.plain)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            HomeReadingDates(book: book, database: model.environment.database)
+                            Menu {
+                                ReadingStatusOptions(current: book.readingStatus) { status in
+                                    model.setReadingStatus(status, for: [book]) { finishedBook = $0 }
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text("Change Status")
+                                    Image(systemName: "chevron.down")
+                                        .font(.caption2)
+                                        .accessibilityHidden(true)
+                                }
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(AppPalette.accent)
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .menuOrder(.fixed)
+                            .accessibilityLabel("Change Status for \(book.title)")
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
+                        .padding(.horizontal, 12)
                     }
-                    .buttonStyle(.plain)
+                    .frame(width: min(440, max(0, cardWidth)))
+                    .modifier(BookCardSurface())
                 }
             }
         }
@@ -664,7 +687,11 @@ struct LibraryView: View {
         return Button {
             if selected { selectedBookIds.remove(book.id) } else { selectedBookIds.insert(book.id) }
         } label: {
-            BookCell(book: book, coverURL: model.coverURL(for: book), layout: layout, selected: selected)
+            if layout == .card {
+                cardCell(book, showsRating: true, selected: selected)
+            } else {
+                BookCell(book: book, coverURL: model.coverURL(for: book), selected: selected)
+            }
         }
         .buttonStyle(.plain)
     }
@@ -740,7 +767,7 @@ struct LibraryView: View {
             } else {
                 ZStack(alignment: .topTrailing) {
                     NavigationLink(value: Route.reader(book.id)) {
-                        BookCell(book: book, coverURL: model.coverURL(for: book), layout: .card, showsMenu: true)
+                        cardCell(book, showsRating: true, showsMenu: true)
                     }
                     .buttonStyle(.plain)
 
@@ -770,6 +797,19 @@ struct LibraryView: View {
             }
         }
         .modifier(BookCardSurface())
+    }
+
+    private func cardCell(
+        _ book: Book, showsRating: Bool = false, showsMenu: Bool = false,
+        selected: Bool? = nil
+    ) -> some View {
+        BookCardReadingTime(
+            book: book,
+            fileURL: model.environment.storage.url(for: book.fileName)
+        ) { timeLeft in
+            BookCell(book: book, coverURL: model.coverURL(for: book), timeLeft: timeLeft,
+                     showsRating: showsRating, showsMenu: showsMenu, selected: selected)
+        }
     }
 
     @ViewBuilder private func bookActions(_ book: Book, includesDetails: Bool = true) -> some View {
@@ -894,10 +934,10 @@ private struct LibraryCardActionStyle: ButtonStyle {
     }
 }
 
-private struct ContinueReadingCard: View {
+private struct BookCardReadingTime<Content: View>: View {
     let book: Book
-    let coverURL: URL?
     let fileURL: URL
+    @ViewBuilder let content: (String) -> Content
     @AppStorage(ReaderSettings.readingSpeedStorageKey) private var readingSpeed = ReaderSettings.defaultReadingSpeed
     @State private var readingIndex: EPUBReadingIndex?
     @State private var pdfPageCount: Int?
@@ -918,9 +958,9 @@ private struct ContinueReadingCard: View {
     }
 
     var body: some View {
-        BookCell(book: book, coverURL: coverURL, layout: .card, timeLeft: timeLeft)
+        content(timeLeft)
             .task {
-                guard readingIndex == nil, pdfPageCount == nil else { return }
+                guard book.progression < 1, readingIndex == nil, pdfPageCount == nil else { return }
                 isIndexing = true
                 defer { isIndexing = false }
                 if book.format == .pdf {
@@ -935,29 +975,30 @@ private struct ContinueReadingCard: View {
 private struct BookCell: View {
     let book: Book
     let coverURL: URL?
-    var layout: LibraryLayout = .grid
-    var showsMenu = false
     var timeLeft: String?
+    var showsRating = false
+    var showsMenu = false
     /// Set while selecting books: whether this one is selected.
     var selected: Bool?
 
     private var progress: Double { min(1, max(0, book.progression)) }
 
     private var progressPercentage: String {
-        progress.formatted(.percent.precision(.fractionLength(0)))
+        BookCardProgress.percentage(progress)
     }
 
     private var bookAccessibilityLabel: String {
         let name = "\(book.title), by \(book.author)"
-        if let timeLeft { return "\(name), \(timeLeft), \(progressPercentage) read" }
         let rating = book.personalRatingQuarterStars.map { "\(personalRatingNumber($0)) out of 5 stars" } ?? "Unrated"
-        return "\(name), \(rating), \(progressPercentage) read"
+        let details = [name, timeLeft == nil || showsRating ? rating : nil,
+                       timeLeft, "\(progressPercentage) read"]
+        return details.compactMap { $0 }.joined(separator: ", ")
     }
 
     var body: some View {
         Group {
-            if layout == .card {
-                cardContent
+            if let timeLeft {
+                cardContent(timeLeft: timeLeft)
             } else {
                 gridContent
             }
@@ -969,33 +1010,17 @@ private struct BookCell: View {
         .accessibilityIdentifier("book-\(book.title)")
     }
 
-    private var cardContent: some View {
-        HStack(alignment: .top, spacing: 12) {
-            cover.frame(width: 80)
-            if let timeLeft {
-                VStack(alignment: .leading, spacing: 6) {
+    private func cardContent(timeLeft: String) -> some View {
+        let coverWidth: CGFloat = 80
+        return HStack(alignment: .bottom, spacing: 12) {
+            cover.frame(width: coverWidth, height: coverWidth * 1.5)
+            BookCardDetailsLayout(minimumHeight: coverWidth * 1.5) {
+                VStack(alignment: .leading, spacing: 4) {
                     cardTitle
-                    Spacer(minLength: 4)
-                    ProgressView(value: progress).tint(AppPalette.accent)
-                    HStack {
-                        Text(timeLeft)
-                        Spacer(minLength: 6)
-                        Text(progressPercentage).monospacedDigit()
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(AppPalette.secondaryText)
-                }
-                .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-            } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    cardTitle
-                    VStack(alignment: .leading, spacing: 6) {
-                        ratingStars
-                        progressBar(label: progressPercentage)
-                    }
+                    if showsRating { ratingStars }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                BookCardProgress(progression: progress, timeLeft: timeLeft)
             }
         }
         .padding(12)
@@ -1035,7 +1060,7 @@ private struct BookCell: View {
 
     private var bookTitle: some View {
         Text(book.title)
-            .font(.subheadline.weight(layout == .card ? .semibold : .medium))
+            .font(.subheadline.weight(.semibold))
             .lineLimit(2)
             .fixedSize(horizontal: false, vertical: true)
             .multilineTextAlignment(.leading)
@@ -1051,16 +1076,6 @@ private struct BookCell: View {
     private var ratingStars: some View {
         PersonalRatingStars(quarterStars: book.personalRatingQuarterStars ?? 0)
             .font(.system(size: 13))
-    }
-
-    private func progressBar(label: String) -> some View {
-        HStack(spacing: 6) {
-            ProgressView(value: progress)
-                .tint(AppPalette.accent)
-            Text(label)
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(AppPalette.secondaryText)
-        }
     }
 
     private var progressBadge: some View {
@@ -1080,6 +1095,115 @@ private struct BookCell: View {
                     .foregroundStyle(AppPalette.text)
             }
             .frame(width: diameter, height: diameter)
+    }
+}
+
+private struct BookCardProgress: View {
+    let progression: Double
+    let timeLeft: String
+
+    static func percentage(_ progression: Double) -> String {
+        min(1, max(0, progression)).formatted(.percent.precision(.fractionLength(0)))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ProgressView(value: min(1, max(0, progression))).tint(AppPalette.accent)
+            HStack(spacing: 6) {
+                Text(timeLeft)
+                Spacer(minLength: 0)
+                Text(Self.percentage(progression)).monospacedDigit()
+            }
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(AppPalette.secondaryText)
+        }
+    }
+}
+
+private struct HomeReadingDates: View {
+    let book: Book
+    let database: AppDatabase
+    @State private var readingSeconds: Double = 0
+
+    private var timeRead: String {
+        let minutes = Int(readingSeconds / 60)
+        if minutes == 0 { return readingSeconds > 0 ? "<1 min" : "0 min" }
+        if minutes < 60 { return "\(minutes) min" }
+        return "\(minutes / 60)h \(minutes % 60)m"
+    }
+
+    private var startedDate: String {
+        book.startedReadingAt?.formatted(.dateTime.month(.abbreviated).day()) ?? "Unknown"
+    }
+
+    private var lastReadDate: String {
+        guard let date = book.lastOpenedAt else { return "Unknown" }
+        if Calendar.current.isDateInToday(date) { return "Today" }
+        if Calendar.current.isDateInYesterday(date) { return "Yesterday" }
+        return date.formatted(.dateTime.month(.abbreviated).day())
+    }
+
+    var body: some View {
+        TimelineView(.everyMinute) { context in
+            let day = Calendar.current.dateInterval(of: .day, for: context.date)
+            HStack(alignment: .top, spacing: 0) {
+                dateColumn("Started", value: startedDate)
+                dividedColumn("Last read", value: lastReadDate)
+                dividedColumn("Today", value: timeRead)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .task(id: day) {
+                readingSeconds = 0
+                guard let day else { return }
+                do {
+                    for try await seconds in database.observeReadingTime(id: book.id, during: day) {
+                        readingSeconds = seconds
+                    }
+                } catch { }
+            }
+        }
+    }
+
+    private func dividedColumn(_ label: String, value: String) -> some View {
+        dateColumn(label, value: value)
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(AppPalette.border)
+                    .frame(width: 1)
+                    .accessibilityHidden(true)
+            }
+    }
+
+    private func dateColumn(_ label: String, value: String) -> some View {
+        VStack(spacing: 2) {
+            Text(label)
+                .foregroundStyle(AppPalette.secondaryText)
+            Text(value)
+                .fontWeight(.semibold)
+                .foregroundStyle(AppPalette.text)
+        }
+        .font(.caption2)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 4)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct BookCardDetailsLayout: Layout {
+    let minimumHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
+        let contentProposal = ProposedViewSize(width: width, height: nil)
+        let contentHeight = subviews[0].sizeThatFits(contentProposal).height
+            + subviews[1].sizeThatFits(contentProposal).height
+        return CGSize(width: width, height: max(minimumHeight, contentHeight + 6))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let contentProposal = ProposedViewSize(width: bounds.width, height: nil)
+        subviews[0].place(at: CGPoint(x: bounds.midX, y: bounds.minY), anchor: .top, proposal: contentProposal)
+        subviews[1].place(at: CGPoint(x: bounds.midX, y: bounds.maxY), anchor: .bottom, proposal: contentProposal)
     }
 }
 
