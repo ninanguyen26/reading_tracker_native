@@ -1,11 +1,36 @@
 import Foundation
 import ReadiumShared
 
+enum ReadingTime {
+    static func duration(words: Double, wordsPerMinute: Int) -> String {
+        let speed = ReaderSettings.readingSpeedRange.contains(wordsPerMinute)
+            ? wordsPerMinute : ReaderSettings.defaultReadingSpeed
+        let minutes = words / Double(speed)
+        guard minutes >= 1 else { return "<1 min" }
+        let rounded = Int(minutes.rounded())
+        let hours = rounded / 60
+        let remainder = rounded % 60
+        return hours == 0 ? "About \(rounded) min" : "About \(hours) hr \(remainder) min"
+    }
+}
+
 /// Counts the text in reading order and maps TOC links to word offsets.
 struct EPUBReadingIndex {
     private var resources: [AnyURL: Range<Int>] = [:]
     private var chapterStarts: [Int] = []
     private(set) var totalWords = 0
+
+    static func load(from url: URL) async throws -> Self? {
+        let publication = try await ReadiumServices.shared.openPublication(at: url)
+        return try await load(publication: publication, contents: [])
+    }
+
+    func wordsRemaining(savedLocator: String?, progression: Double) -> Double {
+        let locator = savedLocator.flatMap { try? Locator(jsonString: $0) }
+        let total = Double(totalWords)
+        let offset = locator.flatMap { wordOffset(at: $0) } ?? total * progression
+        return total - offset
+    }
 
     static func load(publication: Publication, contents: [Link]) async throws -> Self? {
         func targets(_ links: [Link]) -> [AnyURL] {

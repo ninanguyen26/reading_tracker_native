@@ -2,31 +2,9 @@ import SwiftUI
 
 struct HomeMoodSection: View {
     let library: [Book]
+    let openMood: (BookMood, Bool) -> Void
 
-    @EnvironmentObject private var environment: AppEnvironment
-    @AppStorage("home-discover-feedback") private var storedFeedback = Data()
-    @State private var wishlist: [DiscoveryBook]?
-    @State private var wishlistFailed = false
-    @State private var wishlistRetry = 0
-    @State private var selectedMood: BookMood?
-    @State private var showingAllMoods = false
-    @State private var pools: [BookMood: Pool] = [:]
-    @State private var request: Request?
-    @State private var failedRequest: Request?
-    @State private var preview: HomeRecommendation?
-
-    private struct Pool {
-        var candidates: [RecommendationCandidate]
-        var nextOffset: Int?
-        var shownIDs: Set<Int> = []
-    }
-
-    private struct Request: Equatable {
-        let mood: BookMood
-        let offset: Int
-        var replacing: Set<Int> = []
-        var attempt = UUID()
-    }
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
 
     var body: some View {
         let moods = HomeRecommendations.orderedMoods(library: library)
@@ -34,57 +12,108 @@ struct HomeMoodSection: View {
             Text("In the mood for…")
                 .font(.system(.title2, design: .serif).weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(quickMoods(moods), id: \.self) { mood in
-                        Button { choose(mood) } label: {
-                            Text(mood.rawValue.capitalized)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
-                                .foregroundStyle(selectedMood == mood ? AppPalette.accent : AppPalette.text)
-                                .background(AppPalette.secondarySurface, in: Capsule())
-                                .overlay(Capsule().strokeBorder(selectedMood == mood ? AppPalette.accent : .clear))
-                                .frame(minHeight: 44)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(selectedMood == mood ? .isSelected : [])
-                        .accessibilityIdentifier("mood-chip-\(mood.rawValue)")
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(moods, id: \.self) { mood in
+                    moodChip(mood.rawValue.capitalized, emoji: emoji(for: mood)) {
+                        openMood(mood, false)
                     }
-                    Button("All moods") { showingAllMoods = true }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppPalette.accent)
-                        .frame(minHeight: 44)
+                    .accessibilityIdentifier("mood-chip-\(mood.rawValue)")
                 }
-            }
-            if let mood = selectedMood {
-                results(for: mood)
+                moodChip("Surprise me", emoji: "🎲") {
+                    if let mood = moods.randomElement() {
+                        openMood(mood, true)
+                    }
+                }
+                .accessibilityIdentifier("mood-chip-surprise")
+                .accessibilityHint("Picks a mood for you")
             }
         }
-        .sheet(isPresented: $showingAllMoods) {
-            NavigationStack {
-                List(moods, id: \.self) { mood in
-                    Button {
-                        choose(mood)
-                        showingAllMoods = false
-                    } label: {
-                        HStack {
-                            Text(mood.rawValue.capitalized)
-                            Spacer()
-                            if mood == selectedMood { Image(systemName: "checkmark") }
-                        }
-                        .foregroundStyle(AppPalette.text)
-                    }
-                    .accessibilityAddTraits(mood == selectedMood ? .isSelected : [])
-                }
-                .navigationTitle("All moods")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { showingAllMoods = false }
-                    }
-                }
+    }
+
+    private func moodChip(_ title: String, emoji: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Text(emoji)
+                    .font(.body)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .foregroundStyle(AppPalette.text)
+            .background(AppPalette.secondarySurface, in: RoundedRectangle(cornerRadius: 12))
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+    }
+
+    private func emoji(for mood: BookMood) -> String {
+        switch mood {
+        case .adventurous: "🧭"
+        case .challenging: "🧩"
+        case .dark: "🖤"
+        case .emotional: "❤️"
+        case .funny: "😂"
+        case .hopeful: "🌈"
+        case .informative: "💡"
+        case .inspiring: "✨"
+        case .lighthearted: "🧸"
+        case .mysterious: "🔎"
+        case .reflective: "🧠"
+        case .relaxing: "🍵"
+        case .sad: "😢"
+        case .tense: "⚡️"
+        }
+    }
+}
+
+struct MoodBooksScreen: View {
+    let mood: BookMood
+    let isSurprise: Bool
+    let library: [Book]
+
+    @EnvironmentObject private var environment: AppEnvironment
+    @AppStorage("home-discover-feedback") private var storedFeedback = Data()
+    @State private var wishlist: [DiscoveryBook]?
+    @State private var wishlistFailed = false
+    @State private var wishlistRetry = 0
+    @State private var candidates: [RecommendationCandidate] = []
+    @State private var nextOffset: Int?
+    @State private var request: Request? = Request(offset: 0)
+    @State private var failedRequest: Request?
+    @State private var preview: HomeRecommendation?
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+
+    private struct Request: Equatable {
+        let offset: Int
+        var attempt = UUID()
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                if isSurprise {
+                    Text(mood.rawValue.capitalized)
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityAddTraits(.isHeader)
+                }
+                results
+            }
+            .padding()
+            .frame(maxWidth: .infinity)
+        }
+        .accessibilityIdentifier("mood-books-scroll")
+        .background(AppPalette.background)
+        .navigationTitle(isSurprise ? "Surprise me" : mood.rawValue.capitalized)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
         .sheet(item: $preview) { pick in
             DiscoveryBookPreview(book: pick.book, recommendationReason: pick.reason)
         }
@@ -104,69 +133,45 @@ struct HomeMoodSection: View {
         }
     }
 
-    private func quickMoods(_ moods: [BookMood]) -> [BookMood] {
-        let featured = Array(moods.prefix(4))
-        guard let selectedMood, !featured.contains(selectedMood) else { return featured }
-        return featured + [selectedMood]
-    }
-
-    private func choose(_ mood: BookMood) {
-        guard mood != selectedMood else { return }
-        selectedMood = mood
-        failedRequest = nil
-        request = pools[mood] == nil ? Request(mood: mood, offset: 0) : nil
-    }
-
-    @ViewBuilder private func results(for mood: BookMood) -> some View {
+    @ViewBuilder private var results: some View {
         if wishlistFailed {
             Button("Try again") { wishlistRetry += 1 }
-        } else if let pool = pools[mood], let wishlist {
+        } else if let wishlist {
             let feedback = (try? JSONDecoder().decode([Int: RecommendationFeedback].self, from: storedFeedback)) ?? [:]
-            let unseen = HomeRecommendations.ranked(
-                candidates: pool.candidates, library: library, wishlist: wishlist, feedback: feedback,
-                excluding: pool.shownIDs, limit: HomeRecommendations.count * 2
+            let picks = HomeRecommendations.ranked(
+                candidates: candidates, library: library, wishlist: wishlist, feedback: feedback
             )
-            let picks = Array(unseen.prefix(HomeRecommendations.count))
-            if !picks.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 12) {
-                        ForEach(picks) { pick in
-                            Button { preview = pick } label: {
-                                DiscoveryCover(book: pick.book).frame(width: 96)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(pick.book.title)
-                            .accessibilityIdentifier("mood-cover-\(pick.id)")
-                        }
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(picks) { pick in
+                    Button { preview = pick } label: {
+                        DiscoveryCover(book: pick.book)
                     }
-                    .padding(.vertical, 2)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(pick.book.title)
+                    .accessibilityIdentifier("mood-cover-\(pick.id)")
                 }
-                .id(mood)
-            } else if request == nil, failedRequest == nil {
-                Text("No more matches yet.")
-                    .font(.subheadline)
-                    .foregroundStyle(AppPalette.secondaryText)
             }
-            if request == nil, failedRequest == nil, unseen.count > picks.count || pool.nextOffset != nil {
-                Button("More mood picks") {
-                    if unseen.count >= picks.count + HomeRecommendations.count || pool.nextOffset == nil {
-                        pools[mood]?.shownIDs.formUnion(picks.map(\.id))
-                    } else if let offset = pool.nextOffset {
-                        request = Request(mood: mood, offset: offset, replacing: Set(picks.map(\.id)))
-                    }
+            if request == nil, failedRequest == nil {
+                if picks.isEmpty {
+                    Text(nextOffset == nil ? "No matching books yet." : "No matches on this page.")
+                        .font(.subheadline)
+                        .foregroundStyle(AppPalette.secondaryText)
                 }
-                .font(.subheadline.weight(.semibold))
-                .frame(minHeight: 44)
+                if let nextOffset {
+                    Button("Load more books") { request = Request(offset: nextOffset) }
+                        .font(.subheadline.weight(.semibold))
+                        .frame(minHeight: 44)
+                }
             }
         }
-        if request != nil {
+        if request != nil || (wishlist == nil && !wishlistFailed && failedRequest == nil) {
             ProgressView().accessibilityLabel("Loading mood picks")
         } else if let failure = failedRequest {
-            HStack {
+            VStack(spacing: 8) {
                 Text("Couldn’t load mood picks.").foregroundStyle(AppPalette.secondaryText)
                 Button("Try again") {
                     failedRequest = nil
-                    request = Request(mood: failure.mood, offset: failure.offset, replacing: failure.replacing)
+                    request = Request(offset: failure.offset)
                 }
             }
             .font(.subheadline)
@@ -175,17 +180,13 @@ struct HomeMoodSection: View {
 
     private func load(_ work: Request) async {
         do {
-            let page = try await BookDiscoveryClient.books(for: work.mood, offset: work.offset)
+            let page = try await BookDiscoveryClient.books(for: mood, offset: work.offset)
             guard !Task.isCancelled, request == work else { return }
-            let wanted = work.mood.rawValue
-            var pool = pools[work.mood] ?? Pool(candidates: [], nextOffset: nil)
-            var seen = Set(pool.candidates.map(\.id))
-            pool.candidates += page.candidates.filter {
-                $0.moods.contains { $0.lowercased() == wanted } && seen.insert($0.id).inserted
+            var seen = Set(candidates.map(\.id))
+            candidates += page.candidates.filter {
+                $0.moods.contains { $0.lowercased() == mood.rawValue } && seen.insert($0.id).inserted
             }
-            if !page.candidates.isEmpty { pool.shownIDs.formUnion(work.replacing) }
-            pool.nextOffset = page.nextOffset
-            pools[work.mood] = pool
+            nextOffset = page.nextOffset
             request = nil
         } catch {
             guard !Task.isCancelled, request == work else { return }

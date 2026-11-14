@@ -1,3 +1,4 @@
+import class PDFKit.PDFDocument
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -31,6 +32,7 @@ struct LibraryView: View {
         case reader(String, initialReaction: BookReaction? = nil)
         case details(String, fromReader: Bool)
         case genre(BookGenre)
+        case mood(BookMood, isSurprise: Bool)
     }
 
     private enum ShelfNaming {
@@ -219,6 +221,8 @@ struct LibraryView: View {
             }
         case .genre(let genre):
             genreBooks(genre)
+        case .mood(let mood, let isSurprise):
+            MoodBooksScreen(mood: mood, isSurprise: isSurprise, library: model.books)
         }
     }
 
@@ -332,58 +336,72 @@ struct LibraryView: View {
     }
 
     private var homeContent: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                importStatus
-                if let book = model.books.filter({ $0.readingStatus == .reading }).sorted(by: .recent).first {
-                    Text("Continue Reading")
-                        .font(.system(.title2, design: .serif).weight(.semibold))
-                        .accessibilityAddTraits(.isHeader)
-                    NavigationLink(value: Route.reader(book.id)) {
-                        HStack(spacing: 14) {
-                            BookCoverView(book: book, coverURL: model.coverURL(for: book), showsPlaceholderTitle: false)
-                                .frame(width: 72)
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(book.title)
-                                    .font(.headline)
-                                Text(book.author)
-                                    .font(.subheadline)
-                                    .foregroundStyle(AppPalette.secondaryText)
-                                Text(book.progression.formatted(.percent.precision(.fractionLength(0))) + " read")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(AppPalette.secondaryText)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            Image(systemName: "chevron.right")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppPalette.secondaryText)
-                        }
-                        .padding(12)
-                        .background(AppPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-                        .contentShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("book-\(book.title)")
-                } else if model.loaded && model.importing.isEmpty {
-                    if model.books.isEmpty {
-                        EmptyLibraryView { showingImporter = true }
-                    } else {
-                        Text("Nothing in progress")
+        let books = model.books
+            .filter { $0.readingStatus == .reading }
+            .sorted {
+                let first = $0.lastOpenedAt ?? .distantPast
+                let second = $1.lastOpenedAt ?? .distantPast
+                return first == second ? $0.addedAt > $1.addedAt : first > second
+            }
+            .prefix(3)
+        let inset: CGFloat = 16
+
+        return GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    importStatus
+                    if !books.isEmpty {
+                        Text("Continue Reading")
                             .font(.system(.title2, design: .serif).weight(.semibold))
                             .accessibilityAddTraits(.isHeader)
-                        Button("Browse Library") { selectedTab = .library }
-                            .buttonStyle(AppPrimaryButtonStyle())
+                        continueReadingRow(books, width: geometry.size.width - 2 * inset)
+                    } else if model.loaded && model.importing.isEmpty {
+                        if model.books.isEmpty {
+                            EmptyLibraryView { showingImporter = true }
+                        } else {
+                            Text("Nothing in progress")
+                                .font(.system(.title2, design: .serif).weight(.semibold))
+                                .accessibilityAddTraits(.isHeader)
+                            Button("Browse Library") { selectedTab = .library }
+                                .buttonStyle(AppPrimaryButtonStyle())
+                        }
+                    }
+                    if model.loaded {
+                        HomeDiscoverSection(library: model.books)
+                        HomeMoodSection(library: model.books) { mood, isSurprise in
+                            path.append(.mood(mood, isSurprise: isSurprise))
+                        }
                     }
                 }
-                if model.loaded {
-                    HomeDiscoverSection(library: model.books)
-                    HomeMoodSection(library: model.books)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, inset)
+                .padding(.vertical)
+            }
+            .accessibilityIdentifier("home-scroll")
+        }
+    }
+
+    private func continueReadingRow(_ books: ArraySlice<Book>, width: CGFloat) -> some View {
+        let spacing: CGFloat = 12
+        let nextCardPeek: CGFloat = 20
+        let cardWidth = books.count == 1 ? width : width - spacing - nextCardPeek
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: spacing) {
+                ForEach(books) { book in
+                    NavigationLink(value: Route.reader(book.id)) {
+                        ContinueReadingCard(
+                            book: book,
+                            coverURL: model.coverURL(for: book),
+                            fileURL: model.environment.storage.url(for: book.fileName)
+                        )
+                            .frame(width: min(440, max(0, cardWidth)))
+                            .modifier(BookCardSurface())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
         }
-        .accessibilityIdentifier("home-scroll")
+        .accessibilityIdentifier("continue-reading-scroll")
     }
 
     private var filterMenu: some View {
@@ -722,7 +740,7 @@ struct LibraryView: View {
             } else {
                 ZStack(alignment: .topTrailing) {
                     NavigationLink(value: Route.reader(book.id)) {
-                        BookCell(book: book, coverURL: model.coverURL(for: book), layout: .card)
+                        BookCell(book: book, coverURL: model.coverURL(for: book), layout: .card, showsMenu: true)
                     }
                     .buttonStyle(.plain)
 
@@ -751,13 +769,7 @@ struct LibraryView: View {
                 .padding([.horizontal, .bottom], 12)
             }
         }
-        .background(AppPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(AppPalette.border)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
+        .modifier(BookCardSurface())
     }
 
     @ViewBuilder private func bookActions(_ book: Book, includesDetails: Bool = true) -> some View {
@@ -851,6 +863,19 @@ private struct LibraryControlSurface: ViewModifier {
     }
 }
 
+private struct BookCardSurface: ViewModifier {
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 12)
+        content
+            .background(AppPalette.surface, in: shape)
+            .overlay {
+                shape.strokeBorder(AppPalette.border)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+    }
+}
+
 private struct LibraryCardActionStyle: ButtonStyle {
     let outlined: Bool
 
@@ -869,10 +894,50 @@ private struct LibraryCardActionStyle: ButtonStyle {
     }
 }
 
+private struct ContinueReadingCard: View {
+    let book: Book
+    let coverURL: URL?
+    let fileURL: URL
+    @AppStorage(ReaderSettings.readingSpeedStorageKey) private var readingSpeed = ReaderSettings.defaultReadingSpeed
+    @State private var readingIndex: EPUBReadingIndex?
+    @State private var pdfPageCount: Int?
+    @State private var isIndexing = true
+
+    private var timeLeft: String {
+        let progress = min(1, max(0, book.progression))
+        if progress == 1 { return "0 min left" }
+        let words: Double
+        if let readingIndex {
+            words = readingIndex.wordsRemaining(savedLocator: book.locator, progression: progress)
+        } else if let pages = book.pageCount ?? pdfPageCount, pages > 0 {
+            words = Double(pages) * Double(BookPageCounter.wordsPerPage) * (1 - progress)
+        } else {
+            return isIndexing ? "Calculating time…" : "Time unavailable"
+        }
+        return "\(ReadingTime.duration(words: words, wordsPerMinute: readingSpeed)) left"
+    }
+
+    var body: some View {
+        BookCell(book: book, coverURL: coverURL, layout: .card, timeLeft: timeLeft)
+            .task {
+                guard readingIndex == nil, pdfPageCount == nil else { return }
+                isIndexing = true
+                defer { isIndexing = false }
+                if book.format == .pdf {
+                    if book.pageCount == nil { pdfPageCount = PDFDocument(url: fileURL)?.pageCount }
+                    return
+                }
+                readingIndex = try? await EPUBReadingIndex.load(from: fileURL)
+            }
+    }
+}
+
 private struct BookCell: View {
     let book: Book
     let coverURL: URL?
     var layout: LibraryLayout = .grid
+    var showsMenu = false
+    var timeLeft: String?
     /// Set while selecting books: whether this one is selected.
     var selected: Bool?
 
@@ -884,6 +949,7 @@ private struct BookCell: View {
 
     private var bookAccessibilityLabel: String {
         let name = "\(book.title), by \(book.author)"
+        if let timeLeft { return "\(name), \(timeLeft), \(progressPercentage) read" }
         let rating = book.personalRatingQuarterStars.map { "\(personalRatingNumber($0)) out of 5 stars" } ?? "Unrated"
         return "\(name), \(rating), \(progressPercentage) read"
     }
@@ -906,20 +972,41 @@ private struct BookCell: View {
     private var cardContent: some View {
         HStack(alignment: .top, spacing: 12) {
             cover.frame(width: 80)
-            VStack(alignment: .leading, spacing: 10) {
-                VStack(alignment: .leading, spacing: 3) {
-                    bookTitle
-                    bookAuthor
-                }
-                .padding(.trailing, selected == nil ? 32 : 0)
+            if let timeLeft {
                 VStack(alignment: .leading, spacing: 6) {
-                    ratingStars
-                    progressBar(label: progressPercentage)
+                    cardTitle
+                    Spacer(minLength: 4)
+                    ProgressView(value: progress).tint(AppPalette.accent)
+                    HStack {
+                        Text(timeLeft)
+                        Spacer(minLength: 6)
+                        Text(progressPercentage).monospacedDigit()
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(AppPalette.secondaryText)
                 }
+                .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    cardTitle
+                    VStack(alignment: .leading, spacing: 6) {
+                        ratingStars
+                        progressBar(label: progressPercentage)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)
+    }
+
+    private var cardTitle: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            bookTitle
+            bookAuthor
+        }
+        .padding(.trailing, showsMenu ? 32 : 0)
     }
 
     private var gridContent: some View {

@@ -389,17 +389,7 @@ final class ReaderModel: ObservableObject {
             ? readingIndex.wordsLeftInChapter(at: locator, wordOffset: offset)
             : Double(readingIndex.totalWords) - offset
         guard let remaining else { return unavailable }
-        let speed = ReaderSettings.readingSpeedRange.contains(wordsPerMinute) ? wordsPerMinute : ReaderSettings.defaultReadingSpeed
-        let minutes = remaining / Double(speed)
-        let duration: String
-        if minutes < 1 {
-            duration = "<1 min"
-        } else {
-            let rounded = Int(minutes.rounded())
-            let hours = rounded / 60
-            let remainder = rounded % 60
-            duration = hours == 0 ? "About \(rounded) min" : "About \(hours) hr \(remainder) min"
-        }
+        let duration = ReadingTime.duration(words: remaining, wordsPerMinute: wordsPerMinute)
         return "\(duration) left in \(scope)"
     }
 
