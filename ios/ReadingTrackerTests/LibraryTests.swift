@@ -58,8 +58,12 @@ final class LibraryTests: XCTestCase {
         XCTAssertFalse(isStillSaved)
     }
 
+    private func discoverCatalog() throws -> [RecommendationCandidate] {
+        try JSONDecoder().decode([RecommendationCandidate].self, from: Data(contentsOf: fixture("DiscoverCatalog", "json")))
+    }
+
     func testDiscoverUsesPersonalRatingsAndExcludesKnownBooks() throws {
-        let catalog = RecommendationCandidate.starterCatalog
+        let catalog = try discoverCatalog()
         let piranesi = try XCTUnwrap(catalog.first { $0.book.title == "Piranesi" })
         let dune = try XCTUnwrap(catalog.first { $0.book.title == "Dune" })
         let beachRead = try XCTUnwrap(catalog.first { $0.book.title == "Beach Read" })
@@ -68,20 +72,20 @@ final class LibraryTests: XCTestCase {
                             progression: 1, personalRatingQuarterStars: 20)
         let owned = Book(id: "owned", title: "Dune", author: "Frank Herbert", format: .epub,
                          fileName: "owned.epub", size: 0, addedAt: .now, progression: 0)
-        let ranked = HomeRecommendations.ranked(library: [favorite, owned], wishlist: [piranesi.book],
+        let ranked = HomeRecommendations.ranked(candidates: catalog, library: [favorite, owned], wishlist: [piranesi.book],
                                                 feedback: [beachRead.id: .alreadyRead])
         XCTAssertGreaterThanOrEqual(ranked.count, HomeRecommendations.count)
         XCTAssertEqual(Set(ranked.map(\.id)).count, ranked.count)
         XCTAssertFalse(ranked.contains { [piranesi.id, dune.id, beachRead.id].contains($0.id) })
         XCTAssertTrue(try XCTUnwrap(ranked.first).candidate.genres.contains("Science Fiction"))
         XCTAssertNil(try XCTUnwrap(ranked.first).reason)
-        let remaining = HomeRecommendations.ranked(library: [favorite, owned], wishlist: [piranesi.book], feedback: [:])
+        let remaining = HomeRecommendations.ranked(candidates: catalog, library: [favorite, owned], wishlist: [piranesi.book], feedback: [:])
             .filter { $0.id != beachRead.id }
         XCTAssertEqual(ranked.map(\.id).first, remaining.map(\.id).first)
     }
 
     func testDiscoverExplainsSpecificConnectionsToBooksTheReaderLiked() throws {
-        let circe = try XCTUnwrap(RecommendationCandidate.starterCatalog.first { $0.book.title == "Circe" })
+        let circe = try XCTUnwrap(discoverCatalog().first { $0.book.title == "Circe" })
         let mythology = Book(id: "mythology", title: "Mythology Favorite", author: "Avery Quinn", format: .epub,
                              fileName: "favorite.epub", subjects: ["Greek mythology"], size: 0, addedAt: .now,
                              progression: 1, personalRatingQuarterStars: 20)
@@ -91,7 +95,7 @@ final class LibraryTests: XCTestCase {
     }
 
     func testDiscoverUsesReadingHistoryWhenBooksAreUnrated() throws {
-        let catalog = RecommendationCandidate.starterCatalog
+        let catalog = try discoverCatalog()
         let dune = try XCTUnwrap(catalog.first { $0.book.title == "Dune" })
         let circe = try XCTUnwrap(catalog.first { $0.book.title == "Circe" })
         var mythology = Book(id: "mythology", title: "Mythology Book", author: "Avery Quinn", format: .epub,
@@ -126,7 +130,7 @@ final class LibraryTests: XCTestCase {
     }
 
     func testMoodPicksPersonalizeTheSameCatalogPage() throws {
-        let candidates = try JSONDecoder().decode(MoodBookPage.self, from: Data("""
+        let candidates = try JSONDecoder().decode(CatalogRecommendationPage.self, from: Data("""
             {"candidates":[
               {"book":{"id":101,"title":"Comic Mystery","author":"A. Quinn","isbns":[]},"genres":["Mystery"],"moods":["Funny"]},
               {"book":{"id":102,"title":"Comic Memoir","author":"J. Lee","isbns":[]},"genres":["Memoir"],"moods":["Funny"]}

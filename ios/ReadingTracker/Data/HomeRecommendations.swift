@@ -20,20 +20,13 @@ enum RecommendationFeedback: String, Codable, CaseIterable {
     }
 }
 
-struct RecommendationCandidate: Decodable, Identifiable, Sendable {
+struct RecommendationCandidate: Codable, Identifiable, Sendable {
     let book: DiscoveryBook
     let genres: [String]
     let moods: [String]
 
     var id: Int { book.id }
 
-    // English editions matched by ISBN through the app's Hardcover metadata service.
-    // The starter catalog includes standalones and books that can start a series.
-    static let starterCatalog: [Self] = {
-        guard let url = Bundle.main.url(forResource: "DiscoverCatalog", withExtension: "json"),
-              let data = try? Data(contentsOf: url) else { return [] }
-        return (try? JSONDecoder().decode([Self].self, from: data)) ?? []
-    }()
 }
 
 struct HomeRecommendation: Identifiable {
@@ -117,10 +110,11 @@ struct HomeRecommendations {
     }
 
     static func ranked(
-        candidates: [RecommendationCandidate] = RecommendationCandidate.starterCatalog,
+        candidates: [RecommendationCandidate],
         library: [Book],
         wishlist: [DiscoveryBook],
         feedback: [Int: RecommendationFeedback],
+        feedbackBooks: [Int: RecommendationCandidate] = [:],
         excluding: Set<Int> = [],
         limit: Int = .max
     ) -> [HomeRecommendation] {
@@ -136,7 +130,9 @@ struct HomeRecommendations {
             default: return nil
             }
         }
-        signals += candidates.compactMap { candidate in
+        let feedbackSources = Array(feedbackBooks.values.sorted { $0.id < $1.id }) +
+            candidates.filter { feedbackBooks[$0.id] == nil }
+        signals += feedbackSources.compactMap { candidate in
             let weight: Double
             switch feedback[candidate.id] {
             case .moreLikeThis: weight = 0.8
@@ -209,6 +205,56 @@ struct HomeRecommendations {
             }
         }
         return result
+    }
+
+    static func discoveryTaste(library: [Book], feedback: [Int: RecommendationFeedback],
+                               feedbackBooks: [Int: RecommendationCandidate]) -> (moods: [BookMood], genres: [String]) {
+        var moods: [BookMood: Double] = [:]
+        var genres: [String: Double] = [:]
+        func add(moodTags: [String], genreTags: [String], weight: Double) {
+            for mood in Set(BookDetailsText.hardcoverMoods(moodTags).compactMap({ BookMood(rawValue: $0.lowercased()) })) {
+                moods[mood, default: 0] += weight
+            }
+            for genre in Set(genreTags) where genre.range(of: #"^[a-zA-Z ]{2,32}$"#, options: .regularExpression) != nil {
+                genres[genre, default: 0] += weight
+            }
+        }
+        for book in library {
+            let weight: Double
+            if let rating = book.personalRatingQuarterStars {
+                let difference = Double(rating) / 4 - 3
+                weight = book.readingStatus == .dnf ? min(0, difference) : difference
+            } else {
+                switch book.readingStatus {
+                case .finished: weight = 0.45
+                case .reading where book.progression >= 0.1: weight = 0.15
+                default: continue
+                }
+            }
+            let genreTags = book.hardcoverGenres.isEmpty ? book.genres.map { genre in
+                switch genre {
+                case .scienceFiction: "Science Fiction"
+                case .mystery: "Mystery"
+                case .selfHelp: "Self Help"
+                default: genre.displayName
+                }
+            } : book.hardcoverGenres
+            add(moodTags: book.hardcoverMoods ?? [], genreTags: genreTags, weight: weight)
+        }
+        for (id, book) in feedbackBooks.sorted(by: { $0.key < $1.key }) {
+            switch feedback[id] {
+            case .moreLikeThis: add(moodTags: book.moods, genreTags: book.genres, weight: 0.8)
+            case .notForMe: add(moodTags: book.moods, genreTags: book.genres, weight: -0.45)
+            default: break
+            }
+        }
+        let topMoods = moods.filter { $0.value > 0 }.sorted {
+            $0.value == $1.value ? $0.key.rawValue < $1.key.rawValue : $0.value > $1.value
+        }.prefix(3).map(\.key)
+        let topGenres = genres.filter { $0.value > 0 }.sorted {
+            $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value
+        }.prefix(3).map(\.key)
+        return (topMoods, topGenres)
     }
 
     static func orderedMoods(library: [Book]) -> [BookMood] {

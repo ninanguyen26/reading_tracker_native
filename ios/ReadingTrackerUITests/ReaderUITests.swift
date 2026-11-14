@@ -146,7 +146,7 @@ final class ReaderUITests: XCTestCase {
 
     func testDiscoverFeedbackAndWishlist() {
         let app = XCUIApplication()
-        app.launchArguments = ["-reset-library", "-open-library-fixtures"]
+        app.launchArguments = ["-reset-library", "-open-library-fixtures", "-discover-page-fixtures"]
         app.launch()
         app.buttons["tab-home"].tap()
         let covers = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "discover-cover-"))
@@ -199,12 +199,17 @@ final class ReaderUITests: XCTestCase {
         XCTAssertFalse(read.exists)
 
         app.terminate()
-        app.launchArguments = ["-open-library-fixtures"]
+        app.launchArguments = ["-open-library-fixtures", "-discover-page-fixtures"]
         app.launch()
         app.buttons["tab-home"].tap()
         XCTAssertTrue(covers.firstMatch.waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons[firstID].exists)
         XCTAssertFalse(app.buttons[secondID].exists)
+        let current = Set(covers.allElementsBoundByIndex.map(\.identifier))
+        app.buttons["More picks"].tap()
+        XCTAssertTrue(app.buttons["discover-cover-900036"].waitForExistence(timeout: 5))
+        XCTAssertEqual(covers.count, 5)
+        XCTAssertTrue(current.isDisjoint(with: covers.allElementsBoundByIndex.map(\.identifier)))
     }
 
     func testPaletteInLightAndDarkAppearance() {

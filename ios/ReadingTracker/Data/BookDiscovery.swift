@@ -101,13 +101,14 @@ struct DiscoveryPreviewMetadata: Decodable, Sendable {
     let language: String?
 }
 
-struct MoodBookPage: Decodable, Sendable {
+struct CatalogRecommendationPage: Decodable, Sendable {
     let candidates: [RecommendationCandidate]
     let nextOffset: Int?
 }
 
 enum BookDiscoveryClient {
     private struct MoodRequest: Encodable { let mood: BookMood; let offset: Int }
+    private struct PicksRequest: Encodable { let moods: [BookMood]; let genres: [String]; let offset: Int }
     private struct BookID: Encodable { let bookID: Int; var language: String? = nil }
     private struct Lookup: Encodable { let isbn: String?; let title: String; let author: String; var language: String? = nil }
     private struct Page: Encodable { let seriesID: Int; let offset: Int; var bookID: Int? = nil; var language: String? = nil }
@@ -154,8 +155,25 @@ enum BookDiscoveryClient {
         return response.preview
     }
 
-    static func books(for mood: BookMood, offset: Int) async throws -> MoodBookPage {
+    static func books(for mood: BookMood, offset: Int) async throws -> CatalogRecommendationPage {
         try await request("mood-books", body: MoodRequest(mood: mood, offset: offset), legacyBody: nil)
+    }
+
+    static func discoverPicks(moods: [BookMood], genres: [String], offset: Int) async throws -> CatalogRecommendationPage {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-discover-page-fixtures") {
+            let candidates = (0..<12).map { index in
+                let id = 900_000 + offset + index
+                let book = DiscoveryBook(id: id, title: "Catalog Book \(id)", author: "Author \(id)",
+                                         description: "A story from the test catalog.", coverURL: nil,
+                                         alternateCoverURLs: nil, isbns: [], language: "en")
+                return RecommendationCandidate(book: book, genres: [], moods: [])
+            }
+            return CatalogRecommendationPage(candidates: candidates, nextOffset: offset < 72 ? offset + 36 : nil)
+        }
+        #endif
+        return try await request("discover-picks", body: PicksRequest(moods: moods, genres: genres, offset: offset),
+                                 legacyBody: nil)
     }
 
     private static func request<Body: Encodable, Result: Decodable>(
