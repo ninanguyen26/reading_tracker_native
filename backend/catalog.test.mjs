@@ -15,6 +15,21 @@ function setup(responder,options={}) {
   return {catalog,requests};
 }
 const result = data => Response.json({data});
+test('Discover pages the general catalog and taste matches without duplicate work IDs', async () => {
+  const {catalog,requests} = setup(({variables:{offset}}) => result({
+    general:Array.from({length:37},(_, index) => ({...book,id:100+offset+index})),
+    tailored:[{...book,id:100+offset},{...book,id:900+offset}]
+  }));
+  const first = await catalog.discoverPicks({moods:['dark'],genres:['Fantasy']});
+  assert.equal(first.candidates.length,37);
+  assert.equal(first.nextOffset,36);
+  assert.equal(first.candidates.at(-1).book.id,900);
+  const next = await catalog.discoverPicks({moods:['dark'],genres:['Fantasy'],offset:first.nextOffset});
+  assert.equal(next.candidates[0].book.id,136);
+  assert.equal(requests[1].body.variables.offset,36);
+  assert.ok(requests[0].body.variables.taste._or.some(filter => filter.cached_tags._contains.Genre));
+  await assert.rejects(() => catalog.discoverPicks({moods:['%']}),{status:400});
+});
 test('mood catalog pages canonical Hardcover works and verifies mood tags before returning cards', async () => {
   const matching = {...book,cached_tags:{Genre:['Fantasy'],Mood:[{tag:'Funny'}]}};
   const {catalog,requests} = setup(() => result({books:[matching,book,

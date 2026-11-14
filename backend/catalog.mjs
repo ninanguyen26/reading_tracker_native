@@ -76,6 +76,7 @@ function metadata(record, edition = null, matchedISBN = null) {
 
 const previewCount = 6;
 const moodPageSize = 48;
+const discoverPageSize = 36;
 const bookMoods = new Set([
   'adventurous', 'challenging', 'dark', 'emotional', 'funny', 'hopeful', 'informative',
   'inspiring', 'lighthearted', 'mysterious', 'reflective', 'relaxing', 'sad', 'tense'
@@ -148,6 +149,14 @@ function authorDiscoveryCard(book, language) {
   ].map(coverURL).filter(Boolean))];
   const isbns = [...new Set(sources.flatMap(edition => [isbn(edition?.isbn_13), isbn(edition?.isbn_10)]).filter(Boolean))];
   return {...card, coverURL:urls[0] ?? null, alternateCoverURLs:urls.slice(1,4), isbns:isbns.slice(0,4), language:language || null};
+}
+
+function recommendationCard(record) {
+  const book = authorDiscoveryCard(record, '');
+  if (!book) return null;
+  const language = record.default_cover_edition?.language;
+  return {book:{...book,description:null,language:seriesLanguage(language?.code2) || seriesLanguage(language?.code3) || null},
+    genres:tagNames(record.cached_tags?.Genre),moods:moodNames(record.cached_tags?.Mood)};
 }
 
 function seriesEntries(members, currentID, language) {
@@ -281,16 +290,46 @@ export class Catalog {
       }
       if (!Array.isArray(result.books)) throw new CatalogError(502,'invalid_catalog_response');
       const candidates = result.books.slice(0, moodPageSize).flatMap(record => {
-        const moods = moodNames(record.cached_tags?.Mood);
-        if (!moods.some(tag => tag.toLowerCase() === mood)) return [];
-        const book = authorDiscoveryCard(record, '');
-        if (!book) return [];
-        const editionLanguage = record.default_cover_edition?.language;
-        return [{book:{...book, description:null,
-          language:seriesLanguage(editionLanguage?.code2) || seriesLanguage(editionLanguage?.code3) || null},
-          genres:tagNames(record.cached_tags?.Genre), moods}];
+        const card = recommendationCard(record);
+        return card?.moods.some(tag => tag.toLowerCase() === mood) ? [card] : [];
       });
       return {candidates, nextOffset:result.books.length > moodPageSize && offset < 960 ? offset + moodPageSize : null};
+    });
+  }
+
+  async discoverPicks(input) {
+    if (!input || typeof input !== 'object' || Array.isArray(input) ||
+        Object.keys(input).some(key => !['moods','genres','offset'].includes(key)))
+      throw new CatalogError(400,'invalid_discover_picks');
+    const {moods = [], genres = [], offset = 0} = input;
+    if (!Array.isArray(moods) || moods.length > 3 || !moods.every(mood => bookMoods.has(mood)) ||
+        !Array.isArray(genres) || genres.length > 3 ||
+        !genres.every(genre => typeof genre === 'string' && /^[a-zA-Z ]{2,32}$/.test(genre)) ||
+        !Number.isInteger(offset) || offset < 0 || offset > 3600 || offset % discoverPageSize !== 0)
+      throw new CatalogError(400,'invalid_discover_picks');
+    const canonical_id = {_is_null:true};
+    const filters = [
+      ...[...new Set(moods)].sort().flatMap(mood => [mood,mood[0].toUpperCase()+mood.slice(1)]
+        .map(tag => ({cached_tags:{_contains:{Mood:[{tag}]}}}))),
+      ...[...new Set(genres)].sort().map(tag => ({cached_tags:{_contains:{Genre:[{tag}]}}}))
+    ];
+    const fields = `${cardIdentityFields} cached_tags default_cover_edition { ${authorEditionFields} }`;
+    const page = `order_by:[{users_count:desc_nulls_last},{id:asc}],offset:$offset,limit:${discoverPageSize + 1}`;
+    return this.cached(`discover-picks:${JSON.stringify([offset,filters])}`, async () => {
+      const query = `query DiscoverPicks($offset:Int!${filters.length ? ',$taste:books_bool_exp!' : ''}) {
+        general:books(where:{canonical_id:{_is_null:true}},${page}) { ${fields} }
+        ${filters.length ? `tailored:books(where:$taste,${page}) { ${fields} }` : ''}
+      }`;
+      const result = await this.query(query, filters.length ? {offset,taste:{canonical_id,_or:filters}} : {offset},
+        {allowForbidden:true});
+      const tailored = filters.length ? result.tailored : [];
+      if (!Array.isArray(result.general) || !Array.isArray(tailored))
+        throw new CatalogError(502,'invalid_catalog_response');
+      const seen = new Set();
+      const candidates = [...result.general.slice(0,discoverPageSize), ...tailored.slice(0,discoverPageSize)]
+        .map(recommendationCard).filter(card => card && !seen.has(card.book.id) && seen.add(card.book.id));
+      const hasMore = result.general.length > discoverPageSize || tailored.length > discoverPageSize;
+      return {candidates,nextOffset:hasMore && offset < 3600 ? offset + discoverPageSize : null};
     });
   }
 

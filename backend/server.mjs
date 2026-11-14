@@ -12,7 +12,7 @@ export function createServer(catalog = new Catalog({token:process.env.HARDCOVER_
     if ((req.method === 'GET' || req.method === 'HEAD') && req.url === '/health') {
       return send(200,{status:'ok',catalogConfigured:Boolean(catalog.token)});
     }
-    if (req.method !== 'POST' || !['/v1/metadata','/v1/discovery','/v1/series','/v1/preview','/v1/mood-books'].includes(req.url))
+    if (req.method !== 'POST' || !['/v1/metadata','/v1/discovery','/v1/series','/v1/preview','/v1/mood-books','/v1/discover-picks'].includes(req.url))
       return send(404,{error:'not_found'});
     try {
       // Render appends its verified connecting IP; do not trust the leftmost caller-supplied value.
@@ -33,6 +33,7 @@ export function createServer(catalog = new Catalog({token:process.env.HARDCOVER_
       if (req.url === '/v1/series') return send(200,await catalog.seriesPage(input));
       if (req.url === '/v1/preview') return send(200,{preview:await catalog.preview(input)});
       if (req.url === '/v1/mood-books') return send(200,await catalog.moodBooks(input));
+      if (req.url === '/v1/discover-picks') return send(200,await catalog.discoverPicks(input));
       send(200,{metadata:await catalog.lookup(input)});
     } catch (error) {
       const known = error instanceof CatalogError;
