@@ -258,16 +258,27 @@ export class Catalog {
       throw new CatalogError(400,'invalid_mood_books');
 
     return this.cached(`mood-books:${mood}:${offset}`, async () => {
-      const result = await this.query(`query MoodBooks($mood:String!, $offset:Int!) {
-        books(where:{
-          canonical_id:{_is_null:true},
-          taggable_counts:{count:{_gt:0},tag:{tag:{_ilike:$mood},tag_category:{category:{_ilike:"Mood"}}}}
-        },order_by:[{users_count:desc_nulls_last},{id:asc}],offset:$offset,limit:${moodPageSize + 1}) {
+      const query = `query MoodBooks($filter:books_bool_exp!, $offset:Int!) {
+        books(where:$filter,order_by:[{users_count:desc_nulls_last},{id:asc}],offset:$offset,limit:${moodPageSize + 1}) {
           ${cardIdentityFields}
           cached_tags
           default_cover_edition { ${authorEditionFields} }
         }
-      }`, {mood, offset});
+      }`;
+      const canonical_id = {_is_null:true};
+      let result;
+      try {
+        const filter = {canonical_id,taggable_counts:{
+          count:{_gt:0},tag:{tag:{_ilike:mood},tag_category:{category:{_ilike:'Mood'}}}
+        }};
+        result = await this.query(query, {filter, offset}, {allowForbidden:true});
+      } catch (error) {
+        if (error.code !== 'catalog_query_forbidden' && error.code !== 'catalog_query_failed') throw error;
+        // Some tokens can read cached book tags but cannot filter through other catalog tables.
+        const variants = [mood, mood[0].toUpperCase() + mood.slice(1)];
+        const _or = variants.map(tag => ({cached_tags:{_contains:{Mood:[{tag}]}}}));
+        result = await this.query(query, {filter:{canonical_id,_or}, offset}, {allowForbidden:true});
+      }
       if (!Array.isArray(result.books)) throw new CatalogError(502,'invalid_catalog_response');
       const candidates = result.books.slice(0, moodPageSize).flatMap(record => {
         const moods = moodNames(record.cached_tags?.Mood);
@@ -401,7 +412,7 @@ export class Catalog {
     }
     return {members, currentLanguage};
   }
-  async query(query, variables) {
+  async query(query, variables, {allowForbidden = false} = {}) {
     const time = this.now();
     if (time < this.blockedUntil) throw new CatalogError(429,'catalog_rate_limit',Math.ceil((this.blockedUntil-time)/1000));
     const day = new Date(time).toISOString().slice(0,10);
@@ -429,6 +440,7 @@ export class Catalog {
       throw new CatalogError(429,'catalog_rate_limit',delay);
     }
     if (response.status === 401 || response.status === 403) {
+      if (response.status === 403 && allowForbidden) throw new CatalogError(503,'catalog_query_forbidden');
       this.blockedUntil = this.now()+900000;
       throw new CatalogError(503,'catalog_authentication');
     }

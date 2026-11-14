@@ -24,12 +24,19 @@ test('mood catalog pages canonical Hardcover works and verifies mood tags before
   assert.equal(page.candidates.length,47);
   assert.deepEqual(page.candidates[0].moods,['Funny']);
   assert.equal(page.candidates[0].book.description,null);
-  assert.deepEqual(requests[0].body.variables,{mood:'funny',offset:0});
-  assert.match(requests[0].body.query,/taggable_counts.*category.*Mood/);
+  assert.deepEqual(requests[0].body.variables.filter.taggable_counts.tag,
+    {tag:{_ilike:'funny'},tag_category:{category:{_ilike:'Mood'}}});
+  assert.equal(requests[0].body.variables.offset,0);
   await catalog.moodBooks({mood:'funny'});
   assert.equal(requests.length,1);
   await assert.rejects(() => catalog.moodBooks({mood:'%'}),{status:400});
   await assert.rejects(() => catalog.moodBooks({mood:'funny',offset:1}),{status:400});
+});
+test('a forbidden mood relationship falls back to cached tags without blocking book lookups', async () => {
+  const {catalog,requests} = setup((_, attempt) => attempt === 1 ? new Response(null,{status:403}) : result({books:[book]}));
+  assert.equal((await catalog.moodBooks({mood:'dark'})).candidates[0].book.id,42);
+  assert.deepEqual(requests[1].body.variables.filter._or[0],{cached_tags:{_contains:{Mood:[{tag:'dark'}]}}});
+  assert.equal((await catalog.lookup(input)).bookID,42);
 });
 test('lookup and preview return the full catalog description', async () => {
   const description = 'A long synopsis. '.repeat(2100) + 'The final sentence.';
