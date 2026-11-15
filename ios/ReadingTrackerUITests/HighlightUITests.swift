@@ -95,6 +95,26 @@ final class HighlightUITests: XCTestCase {
         app.buttons["Contents and Bookmarks"].tap()
         app.segmentedControls.buttons["Notes"].tap()
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS 'tower'")).firstMatch.waitForExistence(timeout: 5))
+
+        app.segmentedControls.buttons["Contents"].tap()
+        app.collectionViews.buttons["Notes"].tap()
+        let progress = app.staticTexts["reader-progress"]
+        let pageFive = NSPredicate(format: "label BEGINSWITH 'Page 5 of 6'")
+        wait(for: [expectation(for: pageFive, evaluatedWith: progress)], timeout: 10)
+
+        if !app.buttons["Contents and Bookmarks"].isHittable {
+            page.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        let options = app.buttons["Reader Options"]
+        if options.exists { options.tap() }
+        app.buttons["Book Details"].tap()
+
+        app.buttons["Quotes"].tap()
+        let quote = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'tower'")).firstMatch
+        XCTAssertTrue(quote.waitForExistence(timeout: 5))
+        quote.tap()
+        let pageOne = NSPredicate(format: "label BEGINSWITH 'Page 1 of 6'")
+        wait(for: [expectation(for: pageOne, evaluatedWith: progress)], timeout: 10)
     }
 
     func testTheSelectionMenuOffersLookUp() {

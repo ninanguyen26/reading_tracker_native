@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import struct ReadiumShared.Locator
 import UIKit
 
 /// A highlighted passage, optionally with a note.
@@ -48,6 +49,13 @@ struct Highlight: Codable, Identifiable, Hashable, Sendable, FetchableRecord, Pe
     var pageRects: [PageRect] {
         guard let data = pdfRects?.data(using: .utf8) else { return [] }
         return (try? JSONDecoder().decode([PageRect].self, from: data)) ?? []
+    }
+
+    var readerLocator: Locator? {
+        guard let location = try? Locator(jsonString: locator) else { return nil }
+        // In a PDF spread, the current page can differ from the page containing the selection.
+        guard let page = pageRects.first?.page else { return location }
+        return location.copy(locations: { $0.fragments = ["page=\(page + 1)"] })
     }
 
     static func encode(_ rects: [PageRect]) -> String? {

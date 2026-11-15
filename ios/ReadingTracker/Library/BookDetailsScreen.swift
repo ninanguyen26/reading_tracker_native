@@ -1,3 +1,4 @@
+import struct ReadiumShared.Locator
 import SwiftUI
 
 struct BookDetailsScreen: View {
@@ -9,7 +10,7 @@ struct BookDetailsScreen: View {
     let onDeleted: () -> Void
     let onOpenBook: (String) -> Void
     let onOpenGenre: (BookGenre) -> Void
-    let onOpenReaction: (BookReaction) -> Void
+    let onOpenLocation: (Locator) -> Void
     @EnvironmentObject private var environment: AppEnvironment
     @State private var showingLookup = false
     @State private var showingGenres = false
@@ -25,6 +26,7 @@ struct BookDetailsScreen: View {
     @State private var loadingPages = true
     @State private var showingContentWarnings = false
     @State private var readingStatusError: String?
+    @State private var savedLocationUnavailable = false
     @State private var finishedBook: Book?
     @State private var bookToReview: Book?
     @State private var section: Section = .about
@@ -36,7 +38,7 @@ struct BookDetailsScreen: View {
 
     init(book: Book, coverURL: URL?, fromReader: Bool, libraryBooks: [Book],
          onRead: @escaping () -> Void, onDeleted: @escaping () -> Void, onOpenBook: @escaping (String) -> Void,
-         onOpenGenre: @escaping (BookGenre) -> Void, onOpenReaction: @escaping (BookReaction) -> Void) {
+         onOpenGenre: @escaping (BookGenre) -> Void, onOpenLocation: @escaping (Locator) -> Void) {
         _book = State(initialValue: book)
         self.coverURL = coverURL
         self.fromReader = fromReader
@@ -45,7 +47,7 @@ struct BookDetailsScreen: View {
         self.onDeleted = onDeleted
         self.onOpenBook = onOpenBook
         self.onOpenGenre = onOpenGenre
-        self.onOpenReaction = onOpenReaction
+        self.onOpenLocation = onOpenLocation
     }
     private var languages: [String] { BookDetailsText.nonempty(book.languages) }
     private var metadataSources: [String: String] {
@@ -87,9 +89,13 @@ struct BookDetailsScreen: View {
                 case .myReading:
                     BookJournal(bookID: book.id).detailsCard()
                     overallMoodsCard
-                    ReactionHistory(bookID: book.id, onJump: onOpenReaction)
+                    ReactionHistory(bookID: book.id) { reaction in
+                        openSavedLocation(try? Locator(jsonString: reaction.locator))
+                    }
                 case .quotes:
-                    BookQuotes(bookID: book.id)
+                    BookQuotes(bookID: book.id) { highlight in
+                        openSavedLocation(highlight.readerLocator)
+                    }
                 }
             }
             .frame(maxWidth: 600)
@@ -111,6 +117,9 @@ struct BookDetailsScreen: View {
         .sheet(isPresented: $showingGenres) { BookGenreEditor(book: book) { book = $0 } }
         .sheet(isPresented: $showingShelves) { ManageBookShelvesSheet(bookID: book.id) }
         .personalReview(finishedBook: $finishedBook, bookToReview: $bookToReview)
+        .alert("Couldn’t open this spot", isPresented: $savedLocationUnavailable) {
+            Button("OK", role: .cancel) {}
+        }
         .alert("Delete “\(book.title)”?", isPresented: $confirmingDelete) {
             Button("Cancel", role: .cancel) {}
             Button("Delete Book", role: .destructive, action: deleteBook)
@@ -596,10 +605,19 @@ struct BookDetailsScreen: View {
             .foregroundStyle(AppPalette.secondaryText)
             .accessibilityAddTraits(.isHeader)
     }
+
+    private func openSavedLocation(_ locator: Locator?) {
+        guard let locator else {
+            savedLocationUnavailable = true
+            return
+        }
+        onOpenLocation(locator)
+    }
 }
 
 private struct BookQuotes: View {
     let bookID: String
+    let onOpen: (Highlight) -> Void
     @EnvironmentObject private var environment: AppEnvironment
     @State private var highlights: [Highlight]?
     @State private var loadFailed = false
@@ -620,17 +638,22 @@ private struct BookQuotes: View {
                         .detailsCard()
                 }
                 ForEach(highlights) { highlight in
-                    Text(verbatim: highlight.text)
-                        .font(.system(.subheadline, design: .serif))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, 9)
-                        .overlay(alignment: .leading) {
-                            Capsule()
-                                .fill(Color(uiColor: highlight.color.uiColor(in: palette)))
-                                .frame(width: 3)
-                        }
-                        .detailsCard()
+                    Button { onOpen(highlight) } label: {
+                        Text(verbatim: highlight.text)
+                            .font(.system(.subheadline, design: .serif))
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .padding(.leading, 9)
+                            .overlay(alignment: .leading) {
+                                Capsule()
+                                    .fill(Color(uiColor: highlight.color.uiColor(in: palette)))
+                                    .frame(width: 3)
+                            }
+                            .detailsCard()
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Jumps to this passage in the reader")
                 }
             } else {
                 ProgressView()

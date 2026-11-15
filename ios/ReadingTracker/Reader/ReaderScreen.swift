@@ -7,8 +7,8 @@ private let readerToolbarButtonWidth: CGFloat = 44
 
 struct ReaderScreen: View {
     @StateObject private var model: ReaderModel
-    @Binding private var reactionJump: BookReaction?
-    private let initialReaction: BookReaction?
+    @Binding private var readerJump: Locator?
+    private let initialLocation: Locator?
     private let onShowDetails: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
@@ -20,7 +20,7 @@ struct ReaderScreen: View {
     @State private var scrubbing: Double?
     @State private var scrubCommit: Task<Void, Never>?
     @State private var showingReactionConfirmation = false
-    @State private var reactionJumpFailed = false
+    @State private var readerJumpFailed = false
     @State private var reactionSaveFailed = false
     @State private var compactToolbar = false
     @State private var isVisible = false
@@ -29,7 +29,7 @@ struct ReaderScreen: View {
     private var isReading: Bool {
         guard case .ready = model.state else { return false }
         return isVisible && scenePhase == .active && sheet == nil && model.editing == nil
-            && !reactionJumpFailed && !reactionSaveFailed
+            && !readerJumpFailed && !reactionSaveFailed
     }
 
     enum Sheet: Identifiable, Hashable {
@@ -38,11 +38,11 @@ struct ReaderScreen: View {
         var id: Self { self }
     }
 
-    init(book: Book, environment: AppEnvironment, initialReaction: BookReaction?, reactionJump: Binding<BookReaction?>,
+    init(book: Book, environment: AppEnvironment, initialLocation: Locator?, readerJump: Binding<Locator?>,
          onShowDetails: @escaping () -> Void) {
         _model = StateObject(wrappedValue: ReaderModel(book: book, environment: environment))
-        _reactionJump = reactionJump
-        self.initialReaction = initialReaction
+        _readerJump = readerJump
+        self.initialLocation = initialLocation
         self.onShowDetails = onShowDetails
     }
 
@@ -149,14 +149,14 @@ struct ReaderScreen: View {
         }
         .task {
             model.setSystemDark(colorScheme == .dark)
-            await model.load(startingAt: initialReaction)
+            await model.load(startingAt: initialLocation)
         }
-        .task(id: model.navigator == nil ? nil : reactionJump?.id) {
-            guard model.navigator != nil, let reaction = reactionJump else { return }
-            let jumped = await model.go(to: reaction)
-            if !Task.isCancelled, reactionJump?.id == reaction.id {
-                reactionJumpFailed = !jumped
-                reactionJump = nil
+        .task(id: model.navigator == nil ? nil : readerJump) {
+            guard model.navigator != nil, let destination = readerJump else { return }
+            let jumped = await model.go(to: destination)
+            if !Task.isCancelled, readerJump == destination {
+                readerJumpFailed = !jumped
+                readerJump = nil
             }
         }
         .task(id: showingReactionConfirmation && sheet == nil) {
@@ -164,7 +164,7 @@ struct ReaderScreen: View {
             try? await Task.sleep(for: .seconds(2))
             if !Task.isCancelled { showingReactionConfirmation = false }
         }
-        .alert("Couldn’t open this spot", isPresented: $reactionJumpFailed) {
+        .alert("Couldn’t open this spot", isPresented: $readerJumpFailed) {
             Button("OK", role: .cancel) {}
         }
         .alert("Couldn’t save your reaction", isPresented: $reactionSaveFailed) {

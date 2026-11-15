@@ -86,7 +86,7 @@ final class ReaderModel: ObservableObject {
         }
     }
 
-    func load(startingAt reaction: BookReaction? = nil) async {
+    func load(startingAt destination: Locator? = nil) async {
         guard case .loading = state, publication == nil else { return }
         do {
             let publication = try await ReadiumServices.shared.openPublication(
@@ -95,8 +95,8 @@ final class ReaderModel: ObservableObject {
             self.publication = publication
 
             let initialLocation: Locator?
-            if let reaction, let target = try? Locator(jsonString: reaction.locator) {
-                initialLocation = target
+            if let destination {
+                initialLocation = destination
             } else {
                 // Read the saved position fresh, in case it changed since the library listed this book.
                 let saved = try await environment.database.book(id: book.id)?.locator
@@ -239,8 +239,13 @@ final class ReaderModel: ObservableObject {
     }
 
     func go(to reaction: BookReaction) async -> Bool {
-        guard reaction.bookId == book.id, let navigator,
+        guard reaction.bookId == book.id,
               let target = try? Locator(jsonString: reaction.locator) else { return false }
+        return await go(to: target)
+    }
+
+    func go(to target: Locator) async -> Bool {
+        guard let navigator else { return false }
         cancelReadingMovement()
         return await navigator.go(to: target, options: .animated)
     }
