@@ -613,6 +613,42 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(activity.pagesPerMinute(pageCount: 200)), 6, accuracy: 0.001)
     }
 
+    func testReadingTimeOfDaySplitsHoursAndCountsActualSessionStarts() async throws {
+        let book = try await importer.importBook(from: fixture("sample", "pdf"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 7 * 3_600))
+        let midnight = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1)))
+        let month = try XCTUnwrap(calendar.dateInterval(of: .month, for: midnight))
+        let morning = midnight.addingTimeInterval(6 * 3_600)
+        let afternoon = midnight.addingTimeInterval(18 * 3_600 - 60)
+
+        try await database.recordReading(id: book.id, from: midnight.addingTimeInterval(-120),
+                                         to: midnight.addingTimeInterval(60), sessionID: "previous")
+        try await database.recordReading(id: book.id, from: morning, to: morning.addingTimeInterval(30),
+                                         sessionID: "previous")
+        try await database.recordReading(id: book.id, from: morning.addingTimeInterval(60),
+                                         to: morning.addingTimeInterval(90), sessionID: "morning")
+        try await database.recordReading(id: book.id, from: morning.addingTimeInterval(120),
+                                         to: morning.addingTimeInterval(150), sessionID: "morning")
+        try await database.recordReading(id: book.id, from: morning.addingTimeInterval(180),
+                                         to: morning.addingTimeInterval(240))
+        try await database.recordReading(id: book.id, from: morning.addingTimeInterval(240),
+                                         to: morning.addingTimeInterval(300))
+        try await database.recordReading(id: book.id, from: afternoon, to: afternoon.addingTimeInterval(120),
+                                         sessionID: "longest")
+        try await database.recordReading(id: book.id, from: afternoon.addingTimeInterval(180),
+                                         to: afternoon.addingTimeInterval(780), sessionID: "longest")
+        try await database.recordReading(id: book.id, from: month.end, to: month.end.addingTimeInterval(60))
+
+        var updates = database.observeReadingTimeOfDay(in: month, calendar: calendar).makeAsyncIterator()
+        let result = try await updates.next()
+        let stats = try XCTUnwrap(result)
+        XCTAssertEqual(stats.readingSeconds, [.morning: 210, .afternoon: 60, .evening: 660, .night: 60])
+        XCTAssertEqual(stats.sessionStarts, [.morning: 2, .afternoon: 1])
+        XCTAssertEqual(stats.longestSession?.start, afternoon)
+        XCTAssertEqual(stats.longestSession?.seconds, 720)
+    }
+
     func testFinishDateTracksTransitionsToFinished() async throws {
         let book = try await importer.importBook(from: fixture("sample", "pdf"))
         XCTAssertNil(book.finishedReadingAt)

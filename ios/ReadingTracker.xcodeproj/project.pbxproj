@@ -18,6 +18,7 @@
 		1CACBEC4A5D8864FB56D18E7 /* BookCoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C023A38509DB1A88988DC94 /* BookCoverView.swift */; };
 		20D6C3B8893155B83F0C137E /* BookPageCount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F0DD240E37F2EC434B51F8C /* BookPageCount.swift */; };
 		22667C836DBC222BDE46A745 /* HighlightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0D263E85EEF3DBBC7B78949 /* HighlightTests.swift */; };
+		228F8B8ABA9F5AEFD4A0F70C /* MonthlyReadingTimeOfDay.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE493C4DE885DDCA92103AE0 /* MonthlyReadingTimeOfDay.swift */; };
 		29345FD63838B50FB9BE9CD8 /* ShelfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAB5B22B53F7912AAD1C505A /* ShelfTests.swift */; };
 		2A53524FD3084CB70AC60BB7 /* AppDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CC13C39FF13984A87B75E7F /* AppDatabase.swift */; };
 		2B701EDD6FEC3B63AF3798DB /* DebugFixtures in Resources */ = {isa = PBXBuildFile; fileRef = 7176BC0FD8ACB38DFB26F3F4 /* DebugFixtures */; };
@@ -58,6 +59,7 @@
 		A51438B4AC5233AFF4BA06A6 /* AppleGenreModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1965FFBDBACFBAED6B7C97DB /* AppleGenreModel.swift */; };
 		A6EC0E1B3C016986BF90C214 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6661604D5FBFB26E9D30EFEB /* AppEnvironment.swift */; };
 		A822843A84263CB7A2460156 /* BookDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E60F44121170E5853BB3297 /* BookDiscovery.swift */; };
+		ACEBAB5F60F1AFFEBC75ADBF /* ReadingTimeSummaryCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBABEF1E75069A7DC22EB8E7 /* ReadingTimeSummaryCard.swift */; };
 		B323BB00143EA745E9055E29 /* BookMetadataXML.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02D5780708114B70CB2B497C /* BookMetadataXML.swift */; };
 		B326BD78B99EE161C5817FB1 /* ReaderUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6A0FC2116357E1C05C6B4E /* ReaderUITests.swift */; };
 		B86393FD9D4E72B07C77DA62 /* LibraryStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6629039C3BC108B660934246 /* LibraryStatsView.swift */; };
@@ -76,6 +78,7 @@
 		D2B30CB44476684305E965DB /* HomeMoodSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D25F0AC69A1CDABBA3E9144 /* HomeMoodSection.swift */; };
 		D6CE9C3424F69D339D1F3027 /* sample.epub in Resources */ = {isa = PBXBuildFile; fileRef = 4BCA2D1A8733FC16844C87E7 /* sample.epub */; };
 		DCA66C92E132F144522B09E7 /* ReadiumStreamer in Frameworks */ = {isa = PBXBuildFile; productRef = C5C3CA502E6428B98412333D /* ReadiumStreamer */; };
+		DDE1A3E3B5190E4926C41176 /* YearlyReadingTime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C042C2E73AD65F1A0A59F259 /* YearlyReadingTime.swift */; };
 		E0AEE2E45041CE174F20CFB9 /* ReactionHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD28F4F78FD4C66353B885DA /* ReactionHistory.swift */; };
 		E1C0602FA207BC55C2EAE5C0 /* ReadingTrackerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E3B991B57AE0BB530CF5338 /* ReadingTrackerApp.swift */; };
 		E27F6D47C513C089D1D23E83 /* BookGenre.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C89370C566A564B1A20E0FF /* BookGenre.swift */; };
@@ -169,11 +172,14 @@
 		B6BBC66870CACFEC55B01ED1 /* HighlightUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightUITests.swift; sourceTree = "<group>"; };
 		BCCFEC0622B671675868CDB2 /* BookReaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookReaction.swift; sourceTree = "<group>"; };
 		BE37C6BB7B56A14276EA6E69 /* HomeRecommendations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeRecommendations.swift; sourceTree = "<group>"; };
+		BE493C4DE885DDCA92103AE0 /* MonthlyReadingTimeOfDay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonthlyReadingTimeOfDay.swift; sourceTree = "<group>"; };
+		C042C2E73AD65F1A0A59F259 /* YearlyReadingTime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YearlyReadingTime.swift; sourceTree = "<group>"; };
 		C1695BAA4F5507C78D653B96 /* ReaderHostViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderHostViewController.swift; sourceTree = "<group>"; };
 		C78D8402BBCD90DF94C5B653 /* BookSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSearch.swift; sourceTree = "<group>"; };
 		CF1F5FA4263958D8D91499EB /* HighlightPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightPalette.swift; sourceTree = "<group>"; };
 		D0D263E85EEF3DBBC7B78949 /* HighlightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightTests.swift; sourceTree = "<group>"; };
 		D95C88730982457316CEFA92 /* BookDiscoverySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookDiscoverySection.swift; sourceTree = "<group>"; };
+		DBABEF1E75069A7DC22EB8E7 /* ReadingTimeSummaryCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingTimeSummaryCard.swift; sourceTree = "<group>"; };
 		DF84CE09CB0EBA621C95A8DF /* OpenLibraryLookupScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenLibraryLookupScreen.swift; sourceTree = "<group>"; };
 		E4C5F31BC191E1C1205E2F86 /* MonthlyReadingCalendar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonthlyReadingCalendar.swift; sourceTree = "<group>"; };
 		E7DB7F2BD5DD26B89BDF7BC5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -209,8 +215,11 @@
 				E7DB7F2BD5DD26B89BDF7BC5 /* Info.plist */,
 				6629039C3BC108B660934246 /* LibraryStatsView.swift */,
 				E4C5F31BC191E1C1205E2F86 /* MonthlyReadingCalendar.swift */,
+				BE493C4DE885DDCA92103AE0 /* MonthlyReadingTimeOfDay.swift */,
+				DBABEF1E75069A7DC22EB8E7 /* ReadingTimeSummaryCard.swift */,
 				9E3B991B57AE0BB530CF5338 /* ReadingTrackerApp.swift */,
 				8397EEC1B8E63F1517A7FC6A /* YearlyReadingHeatMap.swift */,
+				C042C2E73AD65F1A0A59F259 /* YearlyReadingTime.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -552,6 +561,7 @@
 				6BB5C4AADB25306498D06387 /* LibraryView.swift in Sources */,
 				98A7ACE67EEA8DA524F44CA4 /* ManageBookShelvesSheet.swift in Sources */,
 				F12939C14D46C7D5E3EF2F29 /* MonthlyReadingCalendar.swift in Sources */,
+				228F8B8ABA9F5AEFD4A0F70C /* MonthlyReadingTimeOfDay.swift in Sources */,
 				A32A04BCFA336C41E66DE29E /* NavigationSheet.swift in Sources */,
 				07F898D3A86AC6F09BEF90E1 /* NotesExport.swift in Sources */,
 				8BB57367EE4D5C4BB0235B68 /* OpenLibrary.swift in Sources */,
@@ -565,11 +575,13 @@
 				E8BF43D5AF12E795F37E763C /* ReaderScreen.swift in Sources */,
 				7836F985C904B844A66B4AEB /* ReaderSettings.swift in Sources */,
 				9E545D0E3E67AAD15C03462C /* ReaderSettingsSheet.swift in Sources */,
+				ACEBAB5F60F1AFFEBC75ADBF /* ReadingTimeSummaryCard.swift in Sources */,
 				E1C0602FA207BC55C2EAE5C0 /* ReadingTrackerApp.swift in Sources */,
 				008441A1D0023E06A26021FE /* ReadiumServices.swift in Sources */,
 				CD3C7913964A3EEB6231FDBA /* SearchSheet.swift in Sources */,
 				7E03080366563B29DFA44449 /* Shelf.swift in Sources */,
 				362C7A311E0363359F051B62 /* YearlyReadingHeatMap.swift in Sources */,
+				DDE1A3E3B5190E4926C41176 /* YearlyReadingTime.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

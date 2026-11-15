@@ -17,6 +17,44 @@ struct ReadingActivity: Decodable, FetchableRecord, Sendable {
     }
 }
 
+enum ReadingTimeOfDay: String, CaseIterable, Sendable {
+    case morning, afternoon, evening, night
+
+    init(hour: Int) {
+        switch hour {
+        case 6..<12: self = .morning
+        case 12..<18: self = .afternoon
+        case 18..<22: self = .evening
+        default: self = .night
+        }
+    }
+
+    var title: String { rawValue.capitalized }
+}
+
+struct ReadingTimeOfDayStats: Sendable {
+    struct Session: Sendable {
+        var start: Date
+        var seconds: TimeInterval
+    }
+
+    var readingSeconds: [ReadingTimeOfDay: TimeInterval] = [:]
+    var sessionStarts: [ReadingTimeOfDay: Int] = [:]
+    var longestSession: Session?
+
+    mutating func include(_ session: Session, in period: DateInterval, calendar: Calendar) {
+        guard session.start >= period.start, session.start < period.end else { return }
+        let time = ReadingTimeOfDay(hour: calendar.component(.hour, from: session.start))
+        sessionStarts[time, default: 0] += 1
+        if let longestSession,
+           longestSession.seconds > session.seconds ||
+               (longestSession.seconds == session.seconds && longestSession.start <= session.start) {
+            return
+        }
+        longestSession = session
+    }
+}
+
 /// The library database (SQLite via GRDB).
 final class AppDatabase: Sendable {
     let writer: any DatabaseWriter
@@ -364,6 +402,68 @@ final class AppDatabase: Sendable {
     func observeDailyReadingTime(in interval: DateInterval, calendar: Calendar) -> AsyncValueObservation<[Date: TimeInterval]> {
         ValueObservation.tracking { db in
             try Self.dailyReadingSeconds(db, in: interval, calendar: calendar).mapValues { $0.values.reduce(0, +) }
+        }
+        .values(in: writer)
+    }
+
+    func observeReadingTimeOfDay(in period: DateInterval, calendar: Calendar) -> AsyncValueObservation<ReadingTimeOfDayStats> {
+        ValueObservation.tracking { db in
+            let rows = try Row.fetchCursor(db, sql: """
+                SELECT bookId, startedAt, endedAt, sessionId FROM readingInterval
+                ORDER BY bookId, endedAt
+                """)
+            var stats = ReadingTimeOfDayStats()
+            var bookID: String?
+            var sessions: [String: ReadingTimeOfDayStats.Session] = [:]
+            var legacySession: ReadingTimeOfDayStats.Session?
+            var previousEnd: Date?
+
+            // Follow the same contiguous-checkpoint rule as the per-book activity for legacy sessions.
+            while let row = try rows.next() {
+                let id: String = row["bookId"]
+                let sessionID: String? = row["sessionId"]
+                let startedAt = Date(timeIntervalSince1970: row["startedAt"])
+                let endedAt = Date(timeIntervalSince1970: row["endedAt"])
+                let seconds = endedAt.timeIntervalSince(startedAt)
+
+                if bookID != id {
+                    for session in sessions.values { stats.include(session, in: period, calendar: calendar) }
+                    sessions.removeAll(keepingCapacity: true)
+                }
+                if let session = legacySession,
+                   bookID != id || sessionID != nil || previousEnd.map({ startedAt > $0 }) == true {
+                    stats.include(session, in: period, calendar: calendar)
+                    legacySession = nil
+                }
+
+                if let sessionID {
+                    var session = sessions[sessionID] ?? .init(start: startedAt, seconds: 0)
+                    session.start = min(session.start, startedAt)
+                    session.seconds += seconds
+                    sessions[sessionID] = session
+                } else if var session = legacySession {
+                    session.start = min(session.start, startedAt)
+                    session.seconds += seconds
+                    legacySession = session
+                } else {
+                    legacySession = .init(start: startedAt, seconds: seconds)
+                }
+                bookID = id
+                previousEnd = endedAt
+
+                var start = max(startedAt, period.start)
+                let end = min(endedAt, period.end)
+                while start < end, let hour = calendar.dateInterval(of: .hour, for: start) {
+                    let time = ReadingTimeOfDay(hour: calendar.component(.hour, from: start))
+                    let segmentEnd = min(hour.end, end)
+                    stats.readingSeconds[time, default: 0] += segmentEnd.timeIntervalSince(start)
+                    start = segmentEnd
+                }
+            }
+
+            if let legacySession { stats.include(legacySession, in: period, calendar: calendar) }
+            for session in sessions.values { stats.include(session, in: period, calendar: calendar) }
+            return stats
         }
         .values(in: writer)
     }

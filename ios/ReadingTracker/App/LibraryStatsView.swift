@@ -27,9 +27,20 @@ struct LibraryStatsView: View {
                             MonthlyReadingCalendar(month: month, books: books, coverURL: coverURL, database: database)
                                 .id(month)
                         }
+
+                        statsSection("Reading by Time of Day") {
+                            MonthlyReadingTimeOfDay(month: month, database: database)
+                                .id(month)
+                        }
                     } else if period == .yearly, let year = calendar.dateInterval(of: .year, for: date) {
                         statsSection("Reading Heat Map") {
                             YearlyReadingHeatMap(year: year, database: database)
+                                .id(year)
+                        }
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            statsHeading("Reading Time")
+                            YearlyReadingTime(year: year, database: database)
                                 .id(year)
                         }
                     }
@@ -47,16 +58,20 @@ struct LibraryStatsView: View {
 
     private func statsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.headline)
-                .padding(.horizontal, 16)
-                .accessibilityAddTraits(.isHeader)
+            statsHeading(title)
 
             content()
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .modifier(BookCardSurface())
         }
+    }
+
+    private func statsHeading(_ title: String) -> some View {
+        Text(title)
+            .font(.headline)
+            .padding(.horizontal, 16)
+            .accessibilityAddTraits(.isHeader)
     }
 
     private struct RatedBook: Identifiable {
