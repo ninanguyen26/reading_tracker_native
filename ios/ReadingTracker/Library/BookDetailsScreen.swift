@@ -31,7 +31,7 @@ struct BookDetailsScreen: View {
     private var description: String? { BookDetailsText.description(book.description) }
 
     private enum Section {
-        case about, myReading
+        case about, myReading, quotes
     }
 
     init(book: Book, coverURL: URL?, fromReader: Bool, libraryBooks: [Book],
@@ -88,6 +88,8 @@ struct BookDetailsScreen: View {
                     BookJournal(bookID: book.id).detailsCard()
                     overallMoodsCard
                     ReactionHistory(bookID: book.id, onJump: onOpenReaction)
+                case .quotes:
+                    BookQuotes(bookID: book.id)
                 }
             }
             .frame(maxWidth: 600)
@@ -207,6 +209,7 @@ struct BookDetailsScreen: View {
         HStack(alignment: .bottom, spacing: 0) {
             sectionTab("About", for: .about)
             sectionTab("My Reading", for: .myReading)
+            sectionTab("Quotes", for: .quotes)
         }
         .background(alignment: .bottom) {
             Divider().overlay(AppPalette.border)
@@ -592,6 +595,62 @@ struct BookDetailsScreen: View {
         Text(title).font(.caption.weight(.semibold))
             .foregroundStyle(AppPalette.secondaryText)
             .accessibilityAddTraits(.isHeader)
+    }
+}
+
+private struct BookQuotes: View {
+    let bookID: String
+    @EnvironmentObject private var environment: AppEnvironment
+    @State private var highlights: [Highlight]?
+    @State private var loadFailed = false
+    @State private var palette = HighlightPaletteStore.load()
+
+    var body: some View {
+        LazyVStack(alignment: .leading, spacing: 12) {
+            if loadFailed {
+                Text("Couldn’t load your highlights.")
+                    .font(.subheadline)
+                    .foregroundStyle(AppPalette.error)
+                    .detailsCard()
+            } else if let highlights {
+                if highlights.isEmpty {
+                    Text("No highlights yet. Highlight a passage in the reader to save it here.")
+                        .font(.subheadline)
+                        .foregroundStyle(AppPalette.secondaryText)
+                        .detailsCard()
+                }
+                ForEach(highlights) { highlight in
+                    Text(verbatim: highlight.text)
+                        .font(.system(.subheadline, design: .serif))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 9)
+                        .overlay(alignment: .leading) {
+                            Capsule()
+                                .fill(Color(uiColor: highlight.color.uiColor(in: palette)))
+                                .frame(width: 3)
+                        }
+                        .detailsCard()
+                }
+            } else {
+                ProgressView()
+                    .accessibilityLabel("Loading highlights")
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .highlightPaletteDidChange)) { _ in
+            palette = HighlightPaletteStore.load()
+        }
+        .task(id: bookID) {
+            do {
+                for try await saved in environment.database.observeHighlights(bookId: bookID) {
+                    highlights = saved
+                    loadFailed = false
+                }
+            } catch {
+                if !Task.isCancelled { loadFailed = true }
+            }
+        }
     }
 }
 
