@@ -617,17 +617,42 @@ final class LibraryTests: XCTestCase {
         let migrated = try AppDatabase(queue)
         let legacy = try await migrated.book(id: "legacy")
         XCTAssertEqual(legacy?.personalRatingQuarterStars, 12)
+        XCTAssertNil(legacy?.personalRatingUpdatedAt)
         XCTAssertNil(legacy?.personalThoughts)
+
+        try await migrated.savePersonalReview(quarterStars: 12, moods: [], thoughts: "Notes only", for: "legacy")
+        let notesOnly = try await migrated.book(id: "legacy")
+        XCTAssertNil(notesOnly?.personalRatingUpdatedAt)
+
+        try await migrated.savePersonalReview(quarterStars: 12, moods: [], thoughts: "Notes only", for: "legacy",
+                                              ratingWasEdited: true)
+        let ratedAgain = try await migrated.book(id: "legacy")
+        XCTAssertNotNil(ratedAgain?.personalRatingUpdatedAt)
 
         let thoughts = "First impression.\nA second thought."
         try await migrated.savePersonalReview(quarterStars: 15, moods: [], thoughts: thoughts, for: "legacy")
         let reviewed = try await migrated.book(id: "legacy")
         XCTAssertEqual(reviewed?.personalRatingQuarterStars, 15)
+        XCTAssertNotNil(reviewed?.personalRatingUpdatedAt)
         XCTAssertEqual(reviewed?.personalThoughts, thoughts)
+
+        let earlierRatingDate = Date(timeIntervalSince1970: 1_700_000_000)
+        try await queue.write { db in
+            try db.execute(sql: "UPDATE book SET personalRatingUpdatedAt = ? WHERE id = 'legacy'",
+                           arguments: [earlierRatingDate])
+        }
+        try await migrated.savePersonalReview(quarterStars: 15, moods: [.reflective], thoughts: "Edited", for: "legacy")
+        let edited = try await migrated.book(id: "legacy")
+        XCTAssertEqual(edited?.personalRatingUpdatedAt, earlierRatingDate)
+
+        try await migrated.savePersonalReview(quarterStars: 16, moods: [], thoughts: thoughts, for: "legacy")
+        let rerated = try await migrated.book(id: "legacy")
+        XCTAssertGreaterThan(try XCTUnwrap(rerated?.personalRatingUpdatedAt), earlierRatingDate)
 
         try await migrated.savePersonalReview(quarterStars: nil, moods: [], thoughts: thoughts, for: "legacy")
         let cleared = try await migrated.book(id: "legacy")
         XCTAssertNil(cleared?.personalRatingQuarterStars)
+        XCTAssertNil(cleared?.personalRatingUpdatedAt)
         XCTAssertEqual(cleared?.personalThoughts, thoughts)
         XCTAssertEqual(cleared?.progression, 0.42)
 

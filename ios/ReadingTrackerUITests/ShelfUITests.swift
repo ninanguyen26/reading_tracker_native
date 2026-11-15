@@ -375,13 +375,59 @@ final class ShelfUITests: XCTestCase {
         library.lifetime = .keepAlways
         add(library)
 
+        for (finishedBook, quarterStars) in [(epub, 2), (pdf, 1)] {
+            finishedBook.press(forDuration: 1)
+            menuItem("Book Details", in: app).tap()
+            let rating = app.buttons["personal-rating"]
+            XCTAssertTrue(rating.waitForExistence(timeout: 5))
+            rating.tap()
+            let increase = app.buttons["Increase rating by a quarter star"]
+            XCTAssertTrue(increase.waitForExistence(timeout: 5))
+            for _ in 0..<quarterStars { increase.tap() }
+            app.navigationBars["Your Rating"].buttons["Save"].tap()
+            XCTAssertTrue(rating.waitForExistence(timeout: 5))
+            app.navigationBars["Book Details"].buttons.firstMatch.tap()
+        }
+
+        pdf.press(forDuration: 1)
+        menuItem("Change Status", in: app).tap()
+        menuItem("DNF", in: app).tap()
+        XCTAssertTrue(epub.exists)
+        XCTAssertFalse(pdf.exists)
+
         app.buttons["tab-stats"].tap()
         let finishedCount = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label == %@", "Finished, 2")).firstMatch
+            .matching(NSPredicate(format: "label == %@", "Finished, 1")).firstMatch
         XCTAssertTrue(finishedCount.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Top 3 Best Books"].exists)
+        let higherRating = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@ AND value == %@", epubTitle, "0.5 out of 5 stars")).firstMatch
+        let lowerRating = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@ AND value == %@", pdfTitle, "0.25 out of 5 stars")).firstMatch
+        XCTAssertTrue(higherRating.waitForExistence(timeout: 5))
+        XCTAssertTrue(lowerRating.exists)
+        XCTAssertLessThan(higherRating.frame.midX, lowerRating.frame.midX)
+
         let stats = XCTAttachment(screenshot: app.screenshot())
         stats.name = "Reading Status Stats"
         stats.lifetime = .keepAlways
         add(stats)
+
+        app.buttons["Monthly"].tap()
+        app.buttons["Previous month"].tap()
+        let emptyRankings = app.staticTexts["No books rated in this period."].firstMatch
+        XCTAssertTrue(emptyRankings.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Top 3 Best Books"].exists)
+        XCTAssertFalse(app.staticTexts["Top 3 Worst Books"].exists)
+        XCTAssertTrue(finishedCount.exists)
+
+        app.buttons["All time"].tap()
+        XCTAssertTrue(higherRating.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Next month"].exists)
+
+        app.buttons["Monthly"].tap()
+        XCTAssertTrue(emptyRankings.waitForExistence(timeout: 5))
+        app.buttons["Next month"].tap()
+        XCTAssertTrue(higherRating.waitForExistence(timeout: 5))
     }
 }

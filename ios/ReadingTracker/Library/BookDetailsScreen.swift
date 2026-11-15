@@ -804,6 +804,7 @@ private struct PersonalRatingEditor: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.layoutDirection) private var layoutDirection
     @State private var quarterStars: Int
+    @State private var ratingWasEdited = false
     @State private var moods: Set<BookMood>
     @State private var thoughts: String
     @State private var saving = false
@@ -867,7 +868,7 @@ private struct PersonalRatingEditor: View {
                     .font(.subheadline.monospacedDigit().weight(.semibold))
                     .frame(minWidth: 76)
                 adjustment("plus", label: "Increase rating by a quarter star", step: 1)
-                Button("Clear") { quarterStars = 0 }
+                Button("Clear") { updateRating(0) }
                     .font(.subheadline)
                     .foregroundStyle(quarterStars == 0 ? AppPalette.secondaryText : AppPalette.accent)
                     .frame(minWidth: 44, minHeight: 44)
@@ -937,11 +938,16 @@ private struct PersonalRatingEditor: View {
         guard width > 0 else { return }
         let offset = layoutDirection == .rightToLeft ? width - location : location
         let fraction = min(1, max(0, offset / width))
-        quarterStars = max(1, Int((fraction * 20).rounded(.up)))
+        updateRating(max(1, Int((fraction * 20).rounded(.up))))
     }
 
     private func adjustRating(by step: Int) {
-        quarterStars = min(20, max(0, quarterStars + step))
+        updateRating(min(20, max(0, quarterStars + step)))
+    }
+
+    private func updateRating(_ rating: Int) {
+        quarterStars = rating
+        ratingWasEdited = true
     }
 
     private func adjustment(_ symbol: String, label: String, step: Int) -> some View {
@@ -966,11 +972,13 @@ private struct PersonalRatingEditor: View {
         let rating = quarterStars == 0 ? nil : quarterStars
         let selectedMoods = moods
         let draft = thoughts
+        let editedRating = ratingWasEdited
         Task {
             defer { saving = false }
             do {
                 try await environment.database.savePersonalReview(quarterStars: rating, moods: selectedMoods,
-                                                                  thoughts: draft, for: book.id)
+                                                                  thoughts: draft, for: book.id,
+                                                                  ratingWasEdited: editedRating)
                 dismiss()
             } catch {
                 saveFailed = true

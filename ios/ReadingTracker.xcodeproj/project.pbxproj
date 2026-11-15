@@ -59,6 +59,7 @@
 		A822843A84263CB7A2460156 /* BookDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E60F44121170E5853BB3297 /* BookDiscovery.swift */; };
 		B323BB00143EA745E9055E29 /* BookMetadataXML.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02D5780708114B70CB2B497C /* BookMetadataXML.swift */; };
 		B326BD78B99EE161C5817FB1 /* ReaderUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6A0FC2116357E1C05C6B4E /* ReaderUITests.swift */; };
+		B86393FD9D4E72B07C77DA62 /* LibraryStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6629039C3BC108B660934246 /* LibraryStatsView.swift */; };
 		BB640746A487CD5D7D5F8F1C /* AppNavigationBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 080A7929953BEC8485F64D10 /* AppNavigationBar.swift */; };
 		BCE338111AE2C5D6A8396566 /* BookReaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCCFEC0622B671675868CDB2 /* BookReaction.swift */; };
 		BF4DF0B0D44C488B320572F1 /* HomeDiscoverSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FCDC5F974D9FD2DE47C7884 /* HomeDiscoverSection.swift */; };
@@ -140,6 +141,7 @@
 		61F5DB0EE19977F35F36D56D /* ReaderSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSettingsSheet.swift; sourceTree = "<group>"; };
 		63C0D5879E2D17585696C5BA /* SearchSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchSheet.swift; sourceTree = "<group>"; };
 		642A2B8DAC3D3E23FE97EBA7 /* HighlightSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightSheet.swift; sourceTree = "<group>"; };
+		6629039C3BC108B660934246 /* LibraryStatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryStatsView.swift; sourceTree = "<group>"; };
 		6661604D5FBFB26E9D30EFEB /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		6B7378156BDF0FF8A0210492 /* OpenLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenLibrary.swift; sourceTree = "<group>"; };
 		7176BC0FD8ACB38DFB26F3F4 /* DebugFixtures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DebugFixtures; path = ReadingTracker/Resources/DebugFixtures; sourceTree = SOURCE_ROOT; };
@@ -201,6 +203,7 @@
 				080A7929953BEC8485F64D10 /* AppNavigationBar.swift */,
 				B6B6776CA6A375352E486E13 /* AppPalette.swift */,
 				E7DB7F2BD5DD26B89BDF7BC5 /* Info.plist */,
+				6629039C3BC108B660934246 /* LibraryStatsView.swift */,
 				9E3B991B57AE0BB530CF5338 /* ReadingTrackerApp.swift */,
 			);
 			path = App;
@@ -539,6 +542,7 @@
 				8E25A179AAE37A10743012D0 /* HomeRecommendations.swift in Sources */,
 				FD2397DE38DA596121B4DA64 /* JournalEntry.swift in Sources */,
 				EBC9CEA0FADAE6A272B1B4A3 /* LibraryModel.swift in Sources */,
+				B86393FD9D4E72B07C77DA62 /* LibraryStatsView.swift in Sources */,
 				6BB5C4AADB25306498D06387 /* LibraryView.swift in Sources */,
 				98A7ACE67EEA8DA524F44CA4 /* ManageBookShelvesSheet.swift in Sources */,
 				A32A04BCFA336C41E66DE29E /* NavigationSheet.swift in Sources */,

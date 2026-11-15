@@ -102,6 +102,7 @@ struct Book: Codable, Identifiable, Hashable, Sendable, FetchableRecord, Persist
     var finishedReadingAt: Date? = nil
     /// 1…20 quarter stars, or nil when unrated.
     var personalRatingQuarterStars: Int? = nil
+    var personalRatingUpdatedAt: Date? = nil
     var personalThoughts: String? = nil
     var personalMoods: [BookMood]? = nil
 

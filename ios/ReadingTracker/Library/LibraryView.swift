@@ -330,7 +330,7 @@ struct LibraryView: View {
         case .home:
             homeContent
         case .stats:
-            LibraryStatsView(books: model.books)
+            LibraryStatsView(books: model.books, coverURL: model.coverURL(for:))
         case .settings:
             AppSettingsView()
         }
@@ -914,7 +914,7 @@ private struct LibraryControlSurface: ViewModifier {
     }
 }
 
-private struct BookCardSurface: ViewModifier {
+struct BookCardSurface: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: 12)
         content

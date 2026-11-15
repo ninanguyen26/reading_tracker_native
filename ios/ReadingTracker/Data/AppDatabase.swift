@@ -226,6 +226,9 @@ final class AppDatabase: Sendable {
                 t.add(column: "progressAdvanced", .double)
             }
         }
+        migrator.registerMigration("v23-personal-rating-date") { db in
+            try db.alter(table: "book") { $0.add(column: "personalRatingUpdatedAt", .datetime) }
+        }
         return migrator
     }
 
@@ -379,14 +382,25 @@ final class AppDatabase: Sendable {
         }
     }
 
-    func savePersonalReview(quarterStars: Int?, moods: Set<BookMood>, thoughts: String, for bookID: String) async throws {
+    func savePersonalReview(quarterStars: Int?, moods: Set<BookMood>, thoughts: String, for bookID: String,
+                            ratingWasEdited: Bool = false) async throws {
         let savedThoughts = thoughts.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : thoughts
         let orderedMoods = BookMood.allCases.filter { moods.contains($0) }
         let savedMoods = orderedMoods.isEmpty ? nil : String(decoding: try JSONEncoder().encode(orderedMoods), as: UTF8.self)
         try await writer.write { db in
             try db.execute(
-                sql: "UPDATE book SET personalRatingQuarterStars = ?, personalMoods = ?, personalThoughts = ? WHERE id = ?",
-                arguments: [quarterStars, savedMoods, savedThoughts, bookID]
+                sql: """
+                    UPDATE book SET personalRatingQuarterStars = ?, personalMoods = ?, personalThoughts = ?,
+                        personalRatingUpdatedAt = CASE
+                            WHEN ? IS NULL THEN NULL
+                            WHEN personalRatingQuarterStars IS NOT ?
+                                OR (? AND personalRatingUpdatedAt IS NULL) THEN ?
+                            ELSE personalRatingUpdatedAt
+                        END
+                    WHERE id = ?
+                    """,
+                arguments: [quarterStars, savedMoods, savedThoughts, quarterStars, quarterStars,
+                            ratingWasEdited, Date(), bookID]
             )
             guard db.changesCount > 0 else {
                 throw RecordError.recordNotFound(databaseTableName: Book.databaseTableName, key: ["id": bookID.databaseValue])
