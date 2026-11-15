@@ -390,7 +390,7 @@ struct LibraryView: View {
                 ForEach(books) { book in
                     VStack(alignment: .leading, spacing: 0) {
                         NavigationLink(value: Route.reader(book.id)) {
-                            cardCell(book)
+                            cardCell(book, showsProgressRating: false)
                         }
                         .buttonStyle(.plain)
 
@@ -688,7 +688,7 @@ struct LibraryView: View {
             if selected { selectedBookIds.remove(book.id) } else { selectedBookIds.insert(book.id) }
         } label: {
             if layout == .card {
-                cardCell(book, showsRating: true, selected: selected)
+                cardCell(book, selected: selected)
             } else {
                 BookCell(book: book, coverURL: model.coverURL(for: book), selected: selected)
             }
@@ -767,7 +767,7 @@ struct LibraryView: View {
             } else {
                 ZStack(alignment: .topTrailing) {
                     NavigationLink(value: Route.reader(book.id)) {
-                        cardCell(book, showsRating: true, showsMenu: true)
+                        cardCell(book, showsMenu: true)
                     }
                     .buttonStyle(.plain)
 
@@ -799,16 +799,26 @@ struct LibraryView: View {
         .modifier(BookCardSurface())
     }
 
-    private func cardCell(
-        _ book: Book, showsRating: Bool = false, showsMenu: Bool = false,
-        selected: Bool? = nil
+    @ViewBuilder private func cardCell(
+        _ book: Book, showsProgressRating: Bool = true, showsMenu: Bool = false, selected: Bool? = nil
     ) -> some View {
-        BookCardReadingTime(
-            book: book,
-            fileURL: model.environment.storage.url(for: book.fileName)
-        ) { timeLeft in
-            BookCell(book: book, coverURL: model.coverURL(for: book), timeLeft: timeLeft,
-                     showsRating: showsRating, showsMenu: showsMenu, selected: selected)
+        let cell = { (footer: BookCardFooter) in
+            BookCell(book: book, coverURL: model.coverURL(for: book), cardFooter: footer,
+                     showsProgressRating: showsProgressRating, showsMenu: showsMenu, selected: selected)
+        }
+
+        switch book.readingStatus {
+        case .tbr:
+            cell(.notStarted)
+        case .reading:
+            BookCardReadingTime(
+                book: book,
+                fileURL: model.environment.storage.url(for: book.fileName)
+            ) { timeLeft in
+                cell(.reading(timeLeft: timeLeft))
+            }
+        case .finished, .dnf:
+            cell(.rating(status: book.readingStatus))
         }
     }
 
@@ -972,15 +982,23 @@ private struct BookCardReadingTime<Content: View>: View {
     }
 }
 
+private enum BookCardFooter {
+    case notStarted
+    case reading(timeLeft: String)
+    case rating(status: ReadingStatus)
+}
+
 private struct BookCell: View {
     let book: Book
     let coverURL: URL?
-    var timeLeft: String?
-    var showsRating = false
+    var cardFooter: BookCardFooter?
+    var showsProgressRating = false
     var showsMenu = false
     /// Set while selecting books: whether this one is selected.
     var selected: Bool?
 
+    private let cardRowSpacing: CGFloat = 3
+    private let notStartedLabel = "Not started"
     private var progress: Double { min(1, max(0, book.progression)) }
 
     private var progressPercentage: String {
@@ -989,16 +1007,26 @@ private struct BookCell: View {
 
     private var bookAccessibilityLabel: String {
         let name = "\(book.title), by \(book.author)"
-        let rating = book.personalRatingQuarterStars.map { "\(personalRatingNumber($0)) out of 5 stars" } ?? "Unrated"
-        let details = [name, timeLeft == nil || showsRating ? rating : nil,
-                       timeLeft, "\(progressPercentage) read"]
-        return details.compactMap { $0 }.joined(separator: ", ")
+        let rating = book.personalRatingQuarterStars.map { "\(personalRatingNumber($0)) out of 5 stars" }
+        let progressLabel = "\(progressPercentage) read"
+        let details: [String?]
+        switch cardFooter {
+        case nil:
+            details = [rating ?? "Unrated", progressLabel]
+        case .notStarted:
+            details = [showsProgressRating ? rating : nil, notStartedLabel]
+        case .reading(let timeLeft):
+            details = [showsProgressRating ? rating : nil, timeLeft, progressLabel]
+        case .rating(let status):
+            details = [status.label, rating]
+        }
+        return ([name] + details.compactMap { $0 }).joined(separator: ", ")
     }
 
     var body: some View {
         Group {
-            if let timeLeft {
-                cardContent(timeLeft: timeLeft)
+            if let cardFooter {
+                cardContent(footer: cardFooter)
             } else {
                 gridContent
             }
@@ -1010,24 +1038,48 @@ private struct BookCell: View {
         .accessibilityIdentifier("book-\(book.title)")
     }
 
-    private func cardContent(timeLeft: String) -> some View {
+    private func cardContent(footer: BookCardFooter) -> some View {
         let coverWidth: CGFloat = 80
         return HStack(alignment: .bottom, spacing: 12) {
             cover.frame(width: coverWidth, height: coverWidth * 1.5)
             BookCardDetailsLayout(minimumHeight: coverWidth * 1.5) {
-                VStack(alignment: .leading, spacing: 4) {
-                    cardTitle
-                    if showsRating { ratingStars }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                BookCardProgress(progression: progress, timeLeft: timeLeft)
+                cardTitle
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                cardFooterContent(footer)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(12)
     }
 
+    @ViewBuilder private func cardFooterContent(_ footer: BookCardFooter) -> some View {
+        switch footer {
+        case .notStarted:
+            progressFooter(BookCardProgress(progression: 0, caption: notStartedLabel, showsPercentage: false))
+        case .reading(let timeLeft):
+            progressFooter(BookCardProgress(progression: progress, caption: timeLeft))
+        case .rating(let status):
+            HStack(spacing: 8) {
+                let isRated = book.personalRatingQuarterStars != nil
+                if isRated { ratingStars }
+                if !isRated || status == .dnf {
+                    Text(status.label)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(AppPalette.secondaryText)
+                }
+            }
+        }
+    }
+
+    private func progressFooter(_ progress: BookCardProgress) -> some View {
+        VStack(alignment: .leading, spacing: cardRowSpacing) {
+            if showsProgressRating && book.personalRatingQuarterStars != nil { ratingStars }
+            progress
+        }
+    }
+
     private var cardTitle: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: cardRowSpacing) {
             bookTitle
             bookAuthor
         }
@@ -1100,7 +1152,8 @@ private struct BookCell: View {
 
 private struct BookCardProgress: View {
     let progression: Double
-    let timeLeft: String
+    let caption: String
+    var showsPercentage = true
 
     static func percentage(_ progression: Double) -> String {
         min(1, max(0, progression)).formatted(.percent.precision(.fractionLength(0)))
@@ -1110,9 +1163,11 @@ private struct BookCardProgress: View {
         VStack(alignment: .leading, spacing: 6) {
             ProgressView(value: min(1, max(0, progression))).tint(AppPalette.accent)
             HStack(spacing: 6) {
-                Text(timeLeft)
-                Spacer(minLength: 0)
-                Text(Self.percentage(progression)).monospacedDigit()
+                Text(caption)
+                if showsPercentage {
+                    Spacer(minLength: 0)
+                    Text(Self.percentage(progression)).monospacedDigit()
+                }
             }
             .font(.caption2.weight(.semibold))
             .foregroundStyle(AppPalette.secondaryText)
