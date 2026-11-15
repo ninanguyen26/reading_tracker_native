@@ -14,12 +14,12 @@ struct HomeMoodSection: View {
                 .accessibilityAddTraits(.isHeader)
             LazyVGrid(columns: columns, spacing: 8) {
                 ForEach(moods, id: \.self) { mood in
-                    moodChip(mood.rawValue.capitalized, emoji: emoji(for: mood)) {
+                    moodChip(mood.rawValue, emoji: emoji(for: mood)) {
                         openMood(mood, false)
                     }
                     .accessibilityIdentifier("mood-chip-\(mood.rawValue)")
                 }
-                moodChip("Surprise me", emoji: "🎲") {
+                moodChip("surprise me", emoji: "🎲") {
                     if let mood = moods.randomElement() {
                         openMood(mood, true)
                     }
