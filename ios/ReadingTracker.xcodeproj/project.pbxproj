@@ -24,6 +24,7 @@
 		2B8BD8C8BFE1AF91E4D88C14 /* sample.pdf in Resources */ = {isa = PBXBuildFile; fileRef = 8C051639D4C2B37A8F58F6B9 /* sample.pdf */; };
 		329998C602D6BFA55B6325DA /* OpenLibraryUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84872901754C300E213B779D /* OpenLibraryUITests.swift */; };
 		33D73BACFF71F44B84D8E8AF /* Book.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E1F79A97D27D4447D2633D /* Book.swift */; };
+		362C7A311E0363359F051B62 /* YearlyReadingHeatMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8397EEC1B8E63F1517A7FC6A /* YearlyReadingHeatMap.swift */; };
 		3905EC8979A9CF1DD357F68D /* ReactionPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 608E929410FB1CDF3C0380E9 /* ReactionPicker.swift */; };
 		3DB19DA3E73C16BD55F03487 /* HighlightUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BBC66870CACFEC55B01ED1 /* HighlightUITests.swift */; };
 		4B620881EED7165C68C506B7 /* BookDetailsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FF2E3868CED4DFFD0FBB97D /* BookDetailsScreen.swift */; };
@@ -148,6 +149,7 @@
 		7176BC0FD8ACB38DFB26F3F4 /* DebugFixtures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = DebugFixtures; path = ReadingTracker/Resources/DebugFixtures; sourceTree = SOURCE_ROOT; };
 		7CC13C39FF13984A87B75E7F /* AppDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDatabase.swift; sourceTree = "<group>"; };
 		7D25F0AC69A1CDABBA3E9144 /* HomeMoodSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeMoodSection.swift; sourceTree = "<group>"; };
+		8397EEC1B8E63F1517A7FC6A /* YearlyReadingHeatMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YearlyReadingHeatMap.swift; sourceTree = "<group>"; };
 		84872901754C300E213B779D /* OpenLibraryUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenLibraryUITests.swift; sourceTree = "<group>"; };
 		87BA2A18002FBA50C1092CB3 /* embedded-pages.epub */ = {isa = PBXFileReference; path = "embedded-pages.epub"; sourceTree = "<group>"; };
 		8C051639D4C2B37A8F58F6B9 /* sample.pdf */ = {isa = PBXFileReference; lastKnownFileType = image.pdf; path = sample.pdf; sourceTree = "<group>"; };
@@ -208,6 +210,7 @@
 				6629039C3BC108B660934246 /* LibraryStatsView.swift */,
 				E4C5F31BC191E1C1205E2F86 /* MonthlyReadingCalendar.swift */,
 				9E3B991B57AE0BB530CF5338 /* ReadingTrackerApp.swift */,
+				8397EEC1B8E63F1517A7FC6A /* YearlyReadingHeatMap.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -566,6 +569,7 @@
 				008441A1D0023E06A26021FE /* ReadiumServices.swift in Sources */,
 				CD3C7913964A3EEB6231FDBA /* SearchSheet.swift in Sources */,
 				7E03080366563B29DFA44449 /* Shelf.swift in Sources */,
+				362C7A311E0363359F051B62 /* YearlyReadingHeatMap.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -559,7 +559,7 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(total, 135)
     }
 
-    func testDailyMostReadBooksSumReadingTimeAcrossLocalMidnightAndMonthBoundaries() async throws {
+    func testDailyReadingStatsSumReadingTimeAcrossLocalMidnightAndMonthBoundaries() async throws {
         let first = try await importer.importBook(from: fixture("sample", "pdf"))
         let second = try await importer.importBook(from: fixture("sample", "epub"))
         var calendar = Calendar(identifier: .gregorian)
@@ -578,6 +578,10 @@ final class LibraryTests: XCTestCase {
         var dailyBooks = database.observeDailyMostReadBooks(in: month, calendar: calendar).makeAsyncIterator()
         let winners = try await dailyBooks.next()
         XCTAssertEqual(winners, [start: first.id, nextDay: second.id])
+
+        var dailyReadingTime = database.observeDailyReadingTime(in: month, calendar: calendar).makeAsyncIterator()
+        let totals = try await dailyReadingTime.next()
+        XCTAssertEqual(totals, [start: 140, nextDay: 75])
     }
 
     func testReadingActivityGroupsCheckpointsAndMeasuresSpeedUsingNewIntervals() async throws {

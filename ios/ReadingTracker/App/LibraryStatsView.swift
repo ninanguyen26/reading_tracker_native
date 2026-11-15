@@ -27,6 +27,11 @@ struct LibraryStatsView: View {
                             MonthlyReadingCalendar(month: month, books: books, coverURL: coverURL, database: database)
                                 .id(month)
                         }
+                    } else if period == .yearly, let year = calendar.dateInterval(of: .year, for: date) {
+                        statsSection("Reading Heat Map") {
+                            YearlyReadingHeatMap(year: year, database: database)
+                                .id(year)
+                        }
                     }
 
                     statsSection("Top 3 Best Books") {
