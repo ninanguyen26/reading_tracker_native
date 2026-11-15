@@ -287,15 +287,13 @@ final class AppDatabase: Sendable {
         }
     }
 
-    func observeReadingTime(id: String, during day: DateInterval) -> AsyncValueObservation<Double> {
-        let start = day.start.timeIntervalSince1970
-        let end = day.end.timeIntervalSince1970
-        return ValueObservation.tracking { db in
+    func observeTotalReadingTime(id: String) -> AsyncValueObservation<Double> {
+        ValueObservation.tracking { db in
             try Double.fetchOne(db, sql: """
-                SELECT COALESCE(SUM(MIN(endedAt, ?) - MAX(startedAt, ?)), 0)
+                SELECT COALESCE(SUM(endedAt - startedAt), 0)
                 FROM readingInterval
-                WHERE bookId = ? AND endedAt > ? AND startedAt < ?
-                """, arguments: [end, start, id, start, end]) ?? 0
+                WHERE bookId = ?
+                """, arguments: [id]) ?? 0
         }
         .values(in: writer)
     }

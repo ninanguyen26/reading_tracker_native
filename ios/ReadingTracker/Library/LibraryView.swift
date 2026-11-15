@@ -1144,23 +1144,21 @@ private struct HomeReadingDates: View {
     }
 
     var body: some View {
-        TimelineView(.everyMinute) { context in
-            let day = Calendar.current.dateInterval(of: .day, for: context.date)
+        TimelineView(.everyMinute) { _ in
             HStack(alignment: .top, spacing: 0) {
                 dateColumn("Started", value: startedDate)
                 dividedColumn("Last read", value: lastReadDate)
-                dividedColumn("Today", value: timeRead)
+                dividedColumn("Total read", value: timeRead)
             }
             .fixedSize(horizontal: false, vertical: true)
-            .task(id: day) {
-                readingSeconds = 0
-                guard let day else { return }
-                do {
-                    for try await seconds in database.observeReadingTime(id: book.id, during: day) {
-                        readingSeconds = seconds
-                    }
-                } catch { }
-            }
+        }
+        .task(id: book.id) {
+            readingSeconds = 0
+            do {
+                for try await seconds in database.observeTotalReadingTime(id: book.id) {
+                    readingSeconds = seconds
+                }
+            } catch { }
         }
     }
 

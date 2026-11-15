@@ -541,11 +541,10 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(saved.lastOpenedAt, Date(timeIntervalSince1970: 100))
     }
 
-    func testReadingTimeClipsToDayAndCountsOnlyTheSelectedBook() async throws {
+    func testTotalReadingTimeIncludesAllDaysAndOnlyTheSelectedBook() async throws {
         let book = try await importer.importBook(from: fixture("sample", "pdf"))
         let other = try await importer.importBook(from: fixture("sample", "epub"))
         let midnight = Date(timeIntervalSince1970: 86_400)
-        let day = DateInterval(start: midnight, duration: 86_400)
         let start = midnight.addingTimeInterval(-60)
         let end = midnight.addingTimeInterval(30)
 
@@ -554,9 +553,9 @@ final class LibraryTests: XCTestCase {
         try await database.recordReading(id: book.id, from: end, to: end.addingTimeInterval(45))
         try await database.recordReading(id: other.id, from: start, to: end)
 
-        var totals = database.observeReadingTime(id: book.id, during: day).makeAsyncIterator()
+        var totals = database.observeTotalReadingTime(id: book.id).makeAsyncIterator()
         let total = try await totals.next()
-        XCTAssertEqual(total, 75)
+        XCTAssertEqual(total, 135)
     }
 
     func testPersonalReviewMigratesWholeStarsAndKeepsThoughtsWithoutRating() async throws {

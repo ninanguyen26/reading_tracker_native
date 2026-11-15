@@ -138,22 +138,21 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(resume.waitForExistence(timeout: 5))
         let started = app.staticTexts["Started"]
         let lastRead = app.staticTexts["Last read"]
-        let todayLabels = app.staticTexts.matching(identifier: "Today")
+        let totalRead = app.staticTexts["Total read"]
         let timeRead = app.staticTexts["<1 min"]
         let changeStatus = app.buttons["Change Status for \(pdfTitle)"]
         XCTAssertTrue(started.exists)
         XCTAssertTrue(lastRead.exists)
         XCTAssertTrue(timeRead.waitForExistence(timeout: 5))
         XCTAssertTrue(changeStatus.exists)
-        let today = todayLabels.allElementsBoundByIndex.min { $0.frame.minY < $1.frame.minY } ?? todayLabels.firstMatch
-        XCTAssertTrue(today.exists)
+        XCTAssertTrue(totalRead.exists)
         XCTAssertEqual(started.frame.midY, lastRead.frame.midY, accuracy: 1)
-        XCTAssertEqual(lastRead.frame.midY, today.frame.midY, accuracy: 1)
-        XCTAssertEqual(lastRead.frame.midX - started.frame.midX, today.frame.midX - lastRead.frame.midX, accuracy: 1)
-        XCTAssertEqual(today.frame.midX, timeRead.frame.midX, accuracy: 1)
-        XCTAssertLessThan(today.frame.maxY, timeRead.frame.midY)
+        XCTAssertEqual(lastRead.frame.midY, totalRead.frame.midY, accuracy: 1)
+        XCTAssertEqual(lastRead.frame.midX - started.frame.midX, totalRead.frame.midX - lastRead.frame.midX, accuracy: 1)
+        XCTAssertEqual(totalRead.frame.midX, timeRead.frame.midX, accuracy: 1)
+        XCTAssertLessThan(totalRead.frame.maxY, timeRead.frame.midY)
         XCTAssertLessThan(timeRead.frame.maxY, changeStatus.frame.midY)
-        XCTAssertGreaterThan(changeStatus.frame.midX, today.frame.midX - 16)
+        XCTAssertGreaterThan(changeStatus.frame.midX, totalRead.frame.midX - 16)
         XCTAssertFalse(book(epubTitle, in: app).exists)
         XCTAssertLessThanOrEqual(resume.frame.maxY, homeTab.frame.minY)
         XCTAssertLessThanOrEqual(app.frame.maxY - homeTab.frame.maxY, 45)
