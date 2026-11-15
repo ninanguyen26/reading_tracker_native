@@ -76,7 +76,9 @@ struct BookDetailsScreen: View {
             VStack(alignment: .leading, spacing: 16) {
                 bookHeader
                 readingActions
-                progressRow
+                if showsReadingProgress {
+                    progressRow
+                }
                 sectionTabs
 
                 switch section {
@@ -202,9 +204,12 @@ struct BookDetailsScreen: View {
     }
 
     private var sectionTabs: some View {
-        HStack(spacing: 0) {
+        HStack(alignment: .bottom, spacing: 0) {
             sectionTab("About", for: .about)
             sectionTab("My Reading", for: .myReading)
+        }
+        .background(alignment: .bottom) {
+            Divider().overlay(AppPalette.border)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Book Details Section")
@@ -217,14 +222,13 @@ struct BookDetailsScreen: View {
                 .font(.subheadline.weight(isSelected ? .semibold : .regular))
                 .foregroundStyle(isSelected ? AppPalette.accent : AppPalette.secondaryText)
                 .multilineTextAlignment(.center)
-                .padding(.bottom, 7)
+                .padding(.bottom, 5)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .bottom)
                 .overlay(alignment: .bottom) {
                     if isSelected {
                         Capsule().fill(AppPalette.accent).frame(height: 2)
                     }
                 }
-                .padding(.vertical, 4)
-                .frame(maxWidth: .infinity, minHeight: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -278,7 +282,7 @@ struct BookDetailsScreen: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .buttonStyle(DetailsActionStyle(cornerRadius: 22))
+        .buttonStyle(DetailsActionStyle())
         .accessibilityLabel("Shelves")
         .accessibilityValue(shelfNames.formatted(.list(type: .and)))
     }
@@ -302,10 +306,18 @@ struct BookDetailsScreen: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
         }
-        .buttonStyle(DetailsActionStyle(cornerRadius: 22))
+        .buttonStyle(DetailsActionStyle())
         .accessibilityLabel("Reading Status")
         .accessibilityValue(book.readingStatus.label)
         .accessibilityIdentifier("book-reading-status")
+    }
+
+    private var showsReadingProgress: Bool {
+        switch book.readingStatus {
+        case .reading: true
+        case .finished: false
+        case .tbr, .dnf: book.progression > 0
+        }
     }
 
     private var progressRow: some View {
