@@ -87,6 +87,7 @@ struct BookDetailsScreen: View {
                 case .about:
                     about
                 case .myReading:
+                    BookReadingActivity(book: book)
                     BookJournal(bookID: book.id).detailsCard()
                     overallMoodsCard
                     ReactionHistory(bookID: book.id) { reaction in
@@ -612,6 +613,72 @@ struct BookDetailsScreen: View {
             return
         }
         onOpenLocation(locator)
+    }
+}
+
+private struct BookReadingActivity: View {
+    let book: Book
+    @EnvironmentObject private var environment: AppEnvironment
+    @State private var activity: ReadingActivity?
+    @State private var loadFailed = false
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 10, alignment: .top), count: 2)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            LazyVGrid(columns: columns, spacing: 10) {
+                metricCard("Start date", value: dateLabel(book.startedReadingAt))
+                metricCard("Finish date", value: dateLabel(book.finishedReadingAt))
+                metricCard("Sessions", value: Text(activity?.sessions.formatted() ?? "—"))
+                metricCard("Avg. session length", value: durationLabel(activity?.averageSessionSeconds))
+                metricCard("Reading speed", value: speedLabel(activity?.pagesPerMinute(pageCount: book.pageCount)))
+                metricCard("Total time", value: durationLabel(activity?.totalSeconds))
+            }
+            if loadFailed {
+                Text("Couldn’t load reading activity.")
+                    .font(.subheadline)
+                    .foregroundStyle(AppPalette.error)
+            }
+        }
+        .task(id: book.id) {
+            activity = nil
+            loadFailed = false
+            do {
+                for try await update in environment.database.observeReadingActivity(id: book.id) {
+                    activity = update
+                }
+            } catch {
+                if !Task.isCancelled { loadFailed = true }
+            }
+        }
+    }
+
+    private func metricCard(_ title: String, value: Text) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(AppPalette.secondaryText)
+            value.font(.subheadline.weight(.semibold))
+        }
+        .frame(minHeight: 40, alignment: .topLeading)
+        .detailsCard(padding: 12)
+    }
+
+    private func dateLabel(_ date: Date?) -> Text {
+        guard let date else { return Text("—") }
+        return Text(date, format: .dateTime.month(.abbreviated).day().year())
+    }
+
+    private func durationLabel(_ seconds: Double?) -> Text {
+        guard let seconds else { return Text("—") }
+        return Text(Duration.seconds(seconds.rounded()), format: .units(
+            allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 2
+        ))
+    }
+
+    private func speedLabel(_ speed: Double?) -> Text {
+        guard let speed else { return Text("—") }
+        return Text("≈\(speed, format: .number.precision(.fractionLength(1...2))) pages/min")
     }
 }
 

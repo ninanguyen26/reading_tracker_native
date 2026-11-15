@@ -99,6 +99,7 @@ struct Book: Codable, Identifiable, Hashable, Sendable, FetchableRecord, Persist
     var progression: Double
     var readingStatus: ReadingStatus = .tbr
     var startedReadingAt: Date? = nil
+    var finishedReadingAt: Date? = nil
     /// 1…20 quarter stars, or nil when unrated.
     var personalRatingQuarterStars: Int? = nil
     var personalThoughts: String? = nil

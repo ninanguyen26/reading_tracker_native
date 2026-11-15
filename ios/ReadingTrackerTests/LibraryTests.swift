@@ -512,6 +512,7 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(book.progression, 0.42)
         XCTAssertEqual(book.readingStatus, .tbr)
         XCTAssertNil(book.startedReadingAt)
+        XCTAssertNil(book.finishedReadingAt)
         XCTAssertEqual(book.locator, #"{"href":"chapter.xhtml"}"#)
         XCTAssertNil(book.description)
         XCTAssertEqual(book.series, [])
@@ -556,6 +557,51 @@ final class LibraryTests: XCTestCase {
         var totals = database.observeTotalReadingTime(id: book.id).makeAsyncIterator()
         let total = try await totals.next()
         XCTAssertEqual(total, 135)
+    }
+
+    func testReadingActivityGroupsCheckpointsAndMeasuresSpeedUsingNewIntervals() async throws {
+        let book = try await importer.importBook(from: fixture("sample", "pdf"))
+        let other = try await importer.importBook(from: fixture("sample", "epub"))
+        let start = Date(timeIntervalSince1970: 86_400)
+
+        try await database.recordReading(id: book.id, from: start, to: start.addingTimeInterval(15))
+        try await database.recordReading(id: book.id, from: start.addingTimeInterval(15), to: start.addingTimeInterval(30))
+        try await database.recordReading(id: book.id, from: start.addingTimeInterval(60), to: start.addingTimeInterval(75))
+        try await database.recordReading(id: book.id, from: start.addingTimeInterval(90), to: start.addingTimeInterval(105),
+                                         sessionID: "first", progressAdvanced: 0.01)
+        // A pause for reader controls should not count as picking up the book again.
+        try await database.recordReading(id: book.id, from: start.addingTimeInterval(120), to: start.addingTimeInterval(135),
+                                         sessionID: "first", progressAdvanced: 0)
+        try await database.recordReading(id: book.id, from: start.addingTimeInterval(135), to: start.addingTimeInterval(165),
+                                         sessionID: "second", progressAdvanced: 0.02)
+        try await database.recordReading(id: other.id, from: start, to: start.addingTimeInterval(100),
+                                         sessionID: "other", progressAdvanced: 0.1)
+
+        var updates = database.observeReadingActivity(id: book.id).makeAsyncIterator()
+        let first = try await updates.next()
+        let activity = try XCTUnwrap(first)
+        XCTAssertEqual(activity.sessions, 4)
+        XCTAssertEqual(activity.totalSeconds, 105)
+        XCTAssertEqual(activity.averageSessionSeconds, 26.25)
+        XCTAssertEqual(activity.measuredSeconds, 60)
+        XCTAssertNil(activity.pagesPerMinute(pageCount: nil))
+        XCTAssertEqual(try XCTUnwrap(activity.pagesPerMinute(pageCount: 200)), 6, accuracy: 0.001)
+    }
+
+    func testFinishDateTracksTransitionsToFinished() async throws {
+        let book = try await importer.importBook(from: fixture("sample", "pdf"))
+        XCTAssertNil(book.finishedReadingAt)
+
+        let finished = try await database.setReadingStatus(.finished, for: [book.id])
+        let date = try XCTUnwrap(finished?.finishedReadingAt)
+        try await database.setReadingStatus(.finished, for: [book.id])
+        let unchanged = try await database.book(id: book.id)
+        XCTAssertEqual(unchanged?.finishedReadingAt, date)
+
+        try await database.setReadingStatus(.reading, for: [book.id])
+        let reopened = try await database.book(id: book.id)
+        XCTAssertNil(reopened?.finishedReadingAt)
+        XCTAssertNotNil(reopened?.startedReadingAt)
     }
 
     func testPersonalReviewMigratesWholeStarsAndKeepsThoughtsWithoutRating() async throws {

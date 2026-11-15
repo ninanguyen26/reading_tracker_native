@@ -25,6 +25,7 @@ struct ReaderScreen: View {
     @State private var compactToolbar = false
     @State private var isVisible = false
     @State private var readingSince: Date?
+    @State private var readingSessionID = UUID().uuidString
 
     private var isReading: Bool {
         guard case .ready = model.state else { return false }
@@ -174,9 +175,13 @@ struct ReaderScreen: View {
         .onAppear { isVisible = true }
         .onDisappear {
             isVisible = false
-            saveReadingTime(continues: false)
+            endReadingSession()
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase != .active { endReadingSession() }
         }
         .onChange(of: isReading) { reading in
+            model.tracksReadingProgress = reading
             if reading {
                 readingSince = Date()
             } else {
@@ -199,7 +204,18 @@ struct ReaderScreen: View {
         readingSince = continues ? end : nil
         let database = model.environmentDatabase
         let bookID = model.book.id
-        Task { try? await database.recordReading(id: bookID, from: start, to: end) }
+        let sessionID = readingSessionID
+        let progressAdvanced = model.takeReadingProgress()
+        Task {
+            try? await database.recordReading(id: bookID, from: start, to: end,
+                                              sessionID: sessionID, progressAdvanced: progressAdvanced)
+        }
+    }
+
+    private func endReadingSession() {
+        model.tracksReadingProgress = false
+        saveReadingTime(continues: false)
+        readingSessionID = UUID().uuidString
     }
 
     private var readerToolbar: some View {

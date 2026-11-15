@@ -1,6 +1,22 @@
 import Foundation
 import GRDB
 
+struct ReadingActivity: Decodable, FetchableRecord, Sendable {
+    let totalSeconds: Double
+    let sessions: Int
+    let measuredSeconds: Double
+    let progressAdvanced: Double
+
+    var averageSessionSeconds: Double? {
+        sessions > 0 ? totalSeconds / Double(sessions) : nil
+    }
+
+    func pagesPerMinute(pageCount: Int?) -> Double? {
+        guard let pageCount, pageCount > 0, measuredSeconds > 0, progressAdvanced > 0 else { return nil }
+        return progressAdvanced * Double(pageCount) / (measuredSeconds / 60)
+    }
+}
+
 /// The library database (SQLite via GRDB).
 final class AppDatabase: Sendable {
     let writer: any DatabaseWriter
@@ -203,6 +219,13 @@ final class AppDatabase: Sendable {
                 t.primaryKey(["bookId", "endedAt"])
             }
         }
+        migrator.registerMigration("v22-reading-activity") { db in
+            try db.alter(table: "book") { $0.add(column: "finishedReadingAt", .datetime) }
+            try db.alter(table: "readingInterval") { t in
+                t.add(column: "sessionId", .text)
+                t.add(column: "progressAdvanced", .double)
+            }
+        }
         return migrator
     }
 
@@ -276,15 +299,40 @@ final class AppDatabase: Sendable {
         }
     }
 
-    func recordReading(id: String, from start: Date, to end: Date) async throws {
+    func recordReading(id: String, from start: Date, to end: Date,
+                       sessionID: String? = nil, progressAdvanced: Double? = nil) async throws {
         guard end > start else { return }
         try await writer.write { db in
             try db.execute(sql: """
-                INSERT INTO readingInterval (bookId, startedAt, endedAt)
-                SELECT id, ?, ? FROM book WHERE id = ?
+                INSERT INTO readingInterval (bookId, startedAt, endedAt, sessionId, progressAdvanced)
+                SELECT id, ?, ?, ?, ? FROM book WHERE id = ?
                 ON CONFLICT(bookId, endedAt) DO NOTHING
-                """, arguments: [start.timeIntervalSince1970, end.timeIntervalSince1970, id])
+                """, arguments: [start.timeIntervalSince1970, end.timeIntervalSince1970,
+                                  sessionID, progressAdvanced, id])
         }
+    }
+
+    func observeReadingActivity(id: String) -> AsyncValueObservation<ReadingActivity> {
+        ValueObservation.tracking { db in
+            // Adjacent checkpoints recorded before session IDs were introduced belonged to one session.
+            try ReadingActivity.fetchAll(db, sql: """
+                WITH intervals AS (
+                    SELECT *, LAG(endedAt) OVER (ORDER BY endedAt) AS previousEnd,
+                              LAG(sessionId) OVER (ORDER BY endedAt) AS previousSession
+                    FROM readingInterval WHERE bookId = ?
+                )
+                SELECT COALESCE(SUM(endedAt - startedAt), 0) AS totalSeconds,
+                       COUNT(DISTINCT sessionId) + COUNT(CASE
+                           WHEN sessionId IS NULL AND
+                                (previousEnd IS NULL OR previousSession IS NOT NULL OR startedAt > previousEnd)
+                           THEN 1 END) AS sessions,
+                       COALESCE(SUM(CASE WHEN progressAdvanced IS NOT NULL THEN endedAt - startedAt END), 0)
+                           AS measuredSeconds,
+                       COALESCE(SUM(progressAdvanced), 0) AS progressAdvanced
+                FROM intervals
+                """, arguments: [id])[0]
+        }
+        .values(in: writer)
     }
 
     func observeTotalReadingTime(id: String) -> AsyncValueObservation<Double> {
@@ -311,14 +359,17 @@ final class AppDatabase: Sendable {
     @discardableResult
     func setReadingStatus(_ status: ReadingStatus, for bookIDs: [String]) async throws -> Book? {
         try await writer.write { db in
-            let startedAt = status == .reading ? Date() : nil
+            let date = Date()
+            let startedAt = status == .reading ? date : nil
+            let finishedAt = status == .finished ? date : nil
             for id in bookIDs {
                 try db.execute(
                     sql: """
-                        UPDATE book SET readingStatus = ?, startedReadingAt = COALESCE(startedReadingAt, ?)
+                        UPDATE book SET readingStatus = ?, startedReadingAt = COALESCE(startedReadingAt, ?),
+                                        finishedReadingAt = ?
                         WHERE id = ? AND readingStatus <> ?
                         """,
-                    arguments: [status, startedAt, id, status]
+                    arguments: [status, startedAt, finishedAt, id, status]
                 )
                 if status == .finished, bookIDs.count == 1, db.changesCount > 0 {
                     return try Book.fetchOne(db, key: id)

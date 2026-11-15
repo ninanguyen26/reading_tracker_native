@@ -339,6 +339,28 @@ final class ReaderUITests: XCTestCase {
         waitForProgress(in: app, matching: NSRegularExpression.escapedPattern(for: page))
     }
 
+    func testReadingActivityShowsMeasuredSpeedAfterTurningAPage() {
+        let app = launch(fresh: true)
+        let pdf = book(pdfTitle, in: app)
+        XCTAssertTrue(pdf.waitForExistence(timeout: 15))
+        pdf.tap()
+        waitForProgress(in: app, matching: "Page 1 of 6 · 0%")
+        turnPage(in: app)
+        waitForProgress(in: app, matching: "Page 2 of 6 · \\d+%")
+
+        showToolbar(in: app)
+        app.buttons["Book Details"].tap()
+        app.buttons["My Reading"].tap()
+        let startDate = app.staticTexts["Start date"]
+        let finishDate = app.staticTexts["Finish date"]
+        XCTAssertTrue(startDate.waitForExistence(timeout: 5))
+        XCTAssertTrue(finishDate.exists)
+        XCTAssertEqual(startDate.frame.minY, finishDate.frame.minY, accuracy: 1)
+        XCTAssertLessThan(startDate.frame.minX, finishDate.frame.minX)
+        let measuredSpeed = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH 'pages/min'")).firstMatch
+        XCTAssertTrue(measuredSpeed.waitForExistence(timeout: 5))
+    }
+
     private func captureDetails(_ name: String, in app: XCUIApplication) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name

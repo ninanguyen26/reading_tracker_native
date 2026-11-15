@@ -44,6 +44,8 @@ final class ReaderModel: ObservableObject {
     var highlightObservation: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var readingMovement: (origin: Locator, deadline: ContinuousClock.Instant?)?
+    var tracksReadingProgress = false
+    private var progressSinceCheckpoint: Double = 0
     @Published private var readingIndex: EPUBReadingIndex?
     @Published private var isIndexingReadingTime = true
     private var readingIndexTask: Task<Void, Never>?
@@ -312,8 +314,32 @@ final class ReaderModel: ObservableObject {
         guard let forward else { return }
         readingMovement = nil
         if forward {
+            if tracksReadingProgress {
+                progressSinceCheckpoint += readingProgress(from: origin, to: destination)
+            }
             Task { try? await environment.database.markReadingIfTBR(id: book.id) }
         }
+    }
+
+    func takeReadingProgress() -> Double {
+        defer { progressSinceCheckpoint = 0 }
+        return progressSinceCheckpoint
+    }
+
+    private func readingProgress(from origin: Locator, to destination: Locator) -> Double {
+        let advance: Double
+        if book.format == .pdf, let count = book.pageCount ?? positionCount, count > 0,
+           let start = origin.locations.position, let end = destination.locations.position {
+            advance = Double(end - start) / Double(count)
+        } else if let readingIndex, readingIndex.totalWords > 0,
+                  let start = readingIndex.wordOffset(at: origin), let end = readingIndex.wordOffset(at: destination) {
+            advance = (end - start) / Double(readingIndex.totalWords)
+        } else if let start = origin.locations.totalProgression, let end = destination.locations.totalProgression {
+            advance = end - start
+        } else {
+            return 0
+        }
+        return advance.isFinite ? min(max(advance, 0), 1) : 0
     }
 
     /// The table of contents entry for the current chapter, to highlight it in the list.
