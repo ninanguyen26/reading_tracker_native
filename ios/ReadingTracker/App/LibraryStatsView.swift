@@ -3,6 +3,7 @@ import SwiftUI
 struct LibraryStatsView: View {
     let books: [Book]
     let coverURL: (Book) -> URL?
+    let database: AppDatabase
 
     @Environment(\.calendar) private var calendar
     @State private var period: StatsPeriod = .yearly
@@ -20,6 +21,13 @@ struct LibraryStatsView: View {
                 VStack(spacing: 16) {
                     StatsPeriodNavigator(period: $period, date: $date)
                         .accessibilityElement(children: .contain)
+
+                    if period == .monthly, let month = calendar.dateInterval(of: .month, for: date) {
+                        statsSection("Reading Calendar") {
+                            MonthlyReadingCalendar(month: month, books: books, coverURL: coverURL, database: database)
+                                .id(month)
+                        }
+                    }
 
                     statsSection("Top 3 Best Books") {
                         bestBooks(ratedBooks)
@@ -209,7 +217,6 @@ private struct LibraryCountChart: View {
                 .offset(y: maxBarHeight + countLabelSpace)
                 .accessibilityHidden(true)
         }
-        .padding(.vertical, 12)
         .accessibilityElement(children: .contain)
         .onAppear { barsVisible = true }
         .onDisappear { barsVisible = false }

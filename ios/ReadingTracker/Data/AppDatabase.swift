@@ -349,6 +349,36 @@ final class AppDatabase: Sendable {
         .values(in: writer)
     }
 
+    func observeDailyMostReadBooks(in interval: DateInterval, calendar: Calendar) -> AsyncValueObservation<[Date: String]> {
+        ValueObservation.tracking { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT bookId, startedAt, endedAt FROM readingInterval
+                WHERE startedAt < ? AND endedAt > ?
+                """, arguments: [interval.end.timeIntervalSince1970, interval.start.timeIntervalSince1970])
+
+            var dailySeconds: [Date: [String: TimeInterval]] = [:]
+            for row in rows {
+                let bookID: String = row["bookId"]
+                let startedAt = Date(timeIntervalSince1970: row["startedAt"])
+                let endedAt = Date(timeIntervalSince1970: row["endedAt"])
+                var start = max(startedAt, interval.start)
+                let end = min(endedAt, interval.end)
+                while start < end, let day = calendar.dateInterval(of: .day, for: start) {
+                    let segmentEnd = min(day.end, end)
+                    dailySeconds[day.start, default: [:]][bookID, default: 0] += segmentEnd.timeIntervalSince(start)
+                    start = segmentEnd
+                }
+            }
+            return dailySeconds.compactMapValues { secondsByBook in
+                secondsByBook.max { first, second in
+                    if first.value == second.value { return first.key > second.key }
+                    return first.value < second.value
+                }?.key
+            }
+        }
+        .values(in: writer)
+    }
+
     func saveProgress(id: String, locator: String, progression: Double) async throws {
         try await writer.write { db in
             try db.execute(

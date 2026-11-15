@@ -559,6 +559,27 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(total, 135)
     }
 
+    func testDailyMostReadBooksSumReadingTimeAcrossLocalMidnightAndMonthBoundaries() async throws {
+        let first = try await importer.importBook(from: fixture("sample", "pdf"))
+        let second = try await importer.importBook(from: fixture("sample", "epub"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 7 * 3_600))
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 1)))
+        let month = try XCTUnwrap(calendar.dateInterval(of: .month, for: start))
+        let nextDay = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: start))
+
+        try await database.recordReading(id: first.id, from: start.addingTimeInterval(-90), to: start.addingTimeInterval(30))
+        try await database.recordReading(id: first.id, from: start.addingTimeInterval(80), to: start.addingTimeInterval(120))
+        try await database.recordReading(id: second.id, from: start.addingTimeInterval(120), to: start.addingTimeInterval(180))
+        try await database.recordReading(id: first.id, from: nextDay.addingTimeInterval(-10), to: nextDay.addingTimeInterval(30))
+        try await database.recordReading(id: second.id, from: nextDay.addingTimeInterval(40), to: nextDay.addingTimeInterval(85))
+        try await database.recordReading(id: first.id, from: month.end, to: month.end.addingTimeInterval(60))
+
+        var dailyBooks = database.observeDailyMostReadBooks(in: month, calendar: calendar).makeAsyncIterator()
+        let winners = try await dailyBooks.next()
+        XCTAssertEqual(winners, [start: first.id, nextDay: second.id])
+    }
+
     func testReadingActivityGroupsCheckpointsAndMeasuresSpeedUsingNewIntervals() async throws {
         let book = try await importer.importBook(from: fixture("sample", "pdf"))
         let other = try await importer.importBook(from: fixture("sample", "epub"))

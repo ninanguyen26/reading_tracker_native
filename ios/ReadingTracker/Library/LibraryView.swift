@@ -330,7 +330,7 @@ struct LibraryView: View {
         case .home:
             homeContent
         case .stats:
-            LibraryStatsView(books: model.books, coverURL: model.coverURL(for:))
+            LibraryStatsView(books: model.books, coverURL: model.coverURL(for:), database: model.environment.database)
         case .settings:
             AppSettingsView()
         }
