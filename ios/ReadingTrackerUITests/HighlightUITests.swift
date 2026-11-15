@@ -88,6 +88,9 @@ final class HighlightUITests: XCTestCase {
         sleep(1)
         word.tap()
         XCTAssertTrue(app.buttons["Pink"].waitForExistence(timeout: 5))
+        let note = app.textFields["highlight-note"]
+        note.tap()
+        note.typeText("Remember this passage")
         app.buttons["Done"].tap()
 
         page.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)).tap() // show the toolbar
@@ -110,7 +113,9 @@ final class HighlightUITests: XCTestCase {
         app.buttons["Book Details"].tap()
 
         app.buttons["Quotes"].tap()
-        let quote = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'tower'")).firstMatch
+        let quote = app.buttons.matching(NSPredicate(
+            format: "label CONTAINS[c] %@ AND label CONTAINS %@", "tower", "Remember this passage"
+        )).firstMatch
         XCTAssertTrue(quote.waitForExistence(timeout: 5))
         quote.tap()
         let pageOne = NSPredicate(format: "label BEGINSWITH 'Page 1 of 6'")

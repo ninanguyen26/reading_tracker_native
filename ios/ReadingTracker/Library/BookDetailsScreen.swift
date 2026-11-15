@@ -88,8 +88,9 @@ struct BookDetailsScreen: View {
                     about
                 case .myReading:
                     BookReadingActivity(book: book)
-                    BookJournal(bookID: book.id).detailsCard()
+                    thoughtsCard
                     overallMoodsCard
+                    BookJournal(bookID: book.id).detailsCard()
                     ReactionHistory(bookID: book.id) { reaction in
                         openSavedLocation(try? Locator(jsonString: reaction.locator))
                     }
@@ -422,6 +423,30 @@ struct BookDetailsScreen: View {
         .accessibilityIdentifier("personal-rating")
     }
 
+    private var thoughtsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                heading("Thoughts")
+                Spacer(minLength: 0)
+                Button { bookToReview = book } label: {
+                    Label("Edit", systemImage: "pencil")
+                }
+                .buttonStyle(DetailsHeaderActionStyle())
+                .accessibilityLabel("Edit Thoughts")
+            }
+            if let thoughts = book.personalThoughts, !thoughts.isEmpty {
+                Text(verbatim: thoughts)
+                    .font(.subheadline)
+                    .textSelection(.enabled)
+            } else {
+                Text("No thoughts yet.")
+                    .font(.subheadline)
+                    .foregroundStyle(AppPalette.secondaryText)
+            }
+        }
+        .detailsCard()
+    }
+
     private var overallMoodsCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -706,18 +731,26 @@ private struct BookQuotes: View {
                 }
                 ForEach(highlights) { highlight in
                     Button { onOpen(highlight) } label: {
-                        Text(verbatim: highlight.text)
-                            .font(.system(.subheadline, design: .serif))
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                            .padding(.leading, 9)
-                            .overlay(alignment: .leading) {
-                                Capsule()
-                                    .fill(Color(uiColor: highlight.color.uiColor(in: palette)))
-                                    .frame(width: 3)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(verbatim: highlight.text)
+                                .font(.system(.subheadline, design: .serif))
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                .padding(.leading, 9)
+                                .overlay(alignment: .leading) {
+                                    Capsule()
+                                        .fill(Color(uiColor: highlight.color.uiColor(in: palette)))
+                                        .frame(width: 3)
+                                }
+                            if !highlight.note.isEmpty {
+                                Text(verbatim: highlight.note)
+                                    .font(.caption)
+                                    .foregroundStyle(AppPalette.secondaryText)
+                                    .padding(.leading, 9)
                             }
-                            .detailsCard()
-                            .contentShape(Rectangle())
+                        }
+                        .multilineTextAlignment(.leading)
+                        .detailsCard()
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityHint("Jumps to this passage in the reader")
