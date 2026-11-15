@@ -98,11 +98,7 @@ struct LibraryStatsView: View {
         let counts = Dictionary(grouping: books, by: \.readingStatus).mapValues(\.count)
         List {
             Section("Your Library") {
-                stat("Total Books", count: books.count, color: .forest)
-                stat(ReadingStatus.tbr.label, count: counts[.tbr, default: 0], color: .slateBlue)
-                stat(ReadingStatus.reading.label, count: counts[.reading, default: 0], color: .teal)
-                stat(ReadingStatus.finished.label, count: counts[.finished, default: 0], color: .olive)
-                stat(ReadingStatus.dnf.label, count: counts[.dnf, default: 0], color: .terracotta)
+                LibraryCountChart(total: books.count, counts: counts)
             }
             .listRowBackground(AppPalette.surface)
             Section("Formats") {
@@ -124,6 +120,69 @@ struct LibraryStatsView: View {
             Text(count.formatted()).monospacedDigit().foregroundStyle(AppPalette.secondaryText)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+private struct LibraryCountChart: View {
+    let total: Int
+    let counts: [ReadingStatus: Int]
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .subheadline) private var countLabelSpace: CGFloat = 28
+    @State private var barsVisible = false
+
+    private let maxBarHeight: CGFloat = 120
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            column("Total", count: total, color: .forest)
+            column(ReadingStatus.tbr.label, count: counts[.tbr, default: 0], color: .slateBlue)
+            column(ReadingStatus.reading.label, count: counts[.reading, default: 0], color: .teal)
+            column(ReadingStatus.finished.label, count: counts[.finished, default: 0], color: .olive)
+            column(ReadingStatus.dnf.label, count: counts[.dnf, default: 0], color: .terracotta)
+        }
+        .background(alignment: .top) {
+            Rectangle()
+                .fill(AppPalette.border)
+                .frame(height: 1)
+                .offset(y: maxBarHeight + countLabelSpace)
+                .accessibilityHidden(true)
+        }
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
+        .onAppear { barsVisible = true }
+        .onDisappear { barsVisible = false }
+    }
+
+    private func column(_ title: String, count: Int, color: AppPalette.ChartSeries) -> some View {
+        let barHeight = barsVisible || reduceMotion ? maxBarHeight * CGFloat(count) / CGFloat(max(total, 1)) : 0
+
+        return VStack(spacing: 8) {
+            VStack(spacing: 4) {
+                Text(count.formatted())
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(color.color)
+                    .frame(maxWidth: 36)
+                    .frame(height: barHeight)
+            }
+            .frame(height: maxBarHeight + countLabelSpace, alignment: .bottom)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.65), value: barHeight)
+
+            Text(title)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(AppPalette.secondaryText)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.65)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title), \(count.formatted())")
     }
 }
 
