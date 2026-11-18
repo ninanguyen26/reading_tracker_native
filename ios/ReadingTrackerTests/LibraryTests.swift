@@ -559,6 +559,48 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(total, 135)
     }
 
+    func testFinishedGenreSharesSplitBooksAndFollowFinishDates() throws {
+        let start = Date(timeIntervalSince1970: 86_400)
+        let end = start.addingTimeInterval(86_400)
+        func book(_ id: String, _ genres: [BookGenre], status: ReadingStatus = .finished, finish: Date?) -> Book {
+            Book(id: id, title: id, author: "Author", format: .epub, fileName: "\(id).epub",
+                 genres: genres, size: 0, addedAt: start, progression: 0.5, readingStatus: status, finishedReadingAt: finish)
+        }
+        let books = [
+            book("mixed", [.fantasy, .mystery, .fantasy], finish: start),
+            book("fantasy", [.fantasy], finish: start),
+            book("older", [], finish: nil),
+            book("later", [.history], finish: end),
+            book("reading", [.romance], status: .reading, finish: nil)
+        ]
+
+        let dated = FinishedGenreShare.distribution(books: books, interval: DateInterval(start: start, end: end))
+        XCTAssertEqual(dated.map(\.category), [.genre(.fantasy), .genre(.mystery)])
+        XCTAssertEqual(dated.map(\.fraction), [0.75, 0.25])
+
+        let allTime = FinishedGenreShare.distribution(books: books, interval: nil)
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: allTime.map { ($0.category, $0.fraction) }),
+                       [.genre(.fantasy): 0.375, .genre(.mystery): 0.125, .unclassified: 0.25, .genre(.history): 0.25])
+        XCTAssertTrue(FinishedGenreShare.distribution(books: [], interval: nil).isEmpty)
+    }
+
+    func testFinishedGenreSharesKeepFiveCategoriesAndGroupTheRemainingShare() throws {
+        let genres: [[BookGenre]] = [[], [.fantasy], [.mystery], [.history], [.romance], [.horror, .memoir]]
+        let books = genres.enumerated().map { index, tags in
+            Book(id: "\(index)", title: "Book \(index)", author: "Author", format: .epub, fileName: "\(index).epub",
+                 genres: tags, size: 0, addedAt: .now, progression: 1, readingStatus: .finished)
+        }
+        let shares = FinishedGenreShare.distribution(books: books, interval: nil)
+        XCTAssertEqual(shares.count, 6)
+        XCTAssertEqual(shares.last?.category, .others)
+        XCTAssertEqual(try XCTUnwrap(shares.last?.fraction), 1.0 / 6, accuracy: 0.0001)
+        XCTAssertEqual(shares.reduce(0) { $0 + $1.fraction }, 1, accuracy: 0.0001)
+        XCTAssertTrue(shares.contains { $0.category == .unclassified })
+        let fiveOnly = FinishedGenreShare.distribution(books: Array(books.dropLast()), interval: nil)
+        XCTAssertEqual(fiveOnly.count, 5)
+        XCTAssertFalse(fiveOnly.contains { $0.category == .others })
+    }
+
     func testReadingTotalsUseFinishDatesAndClipRecordedProgressToSelectedPeriod() async throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 7 * 3_600))

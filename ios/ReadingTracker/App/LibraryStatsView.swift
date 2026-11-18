@@ -52,6 +52,10 @@ struct LibraryStatsView: View {
                     statsSection("Top 3 Best Books") {
                         bestBooks(ratedBooks)
                     }
+
+                    statsSection("Finished Books by Genre") {
+                        FinishedGenresChart(books: books, interval: interval)
+                    }
                 }
             }
             .padding(20)
