@@ -601,6 +601,50 @@ final class LibraryTests: XCTestCase {
         XCTAssertFalse(fiveOnly.contains { $0.category == .others })
     }
 
+    func testFinishedMoodSharesSplitBooksAndFollowFinishDates() throws {
+        let start = Date(timeIntervalSince1970: 86_400)
+        let end = start.addingTimeInterval(86_400)
+        func book(_ id: String, _ moods: [String]?, status: ReadingStatus = .finished, finish: Date?) -> Book {
+            Book(id: id, title: id, author: "Author", format: .epub, fileName: "\(id).epub",
+                 hardcoverMoods: moods, size: 0, addedAt: start, progression: 0.5,
+                 readingStatus: status, finishedReadingAt: finish)
+        }
+        let books = [
+            book("mixed", ["Hopeful", #"["Reflective"]"#, "hopeful"], finish: start),
+            book("hopeful", ["Hopeful"], finish: start),
+            book("older", nil, finish: nil),
+            book("later", ["Tense"], finish: end),
+            book("reading", ["Funny"], status: .reading, finish: nil)
+        ]
+
+        let dated = FinishedMoodShare.distribution(books: books, interval: DateInterval(start: start, end: end))
+        XCTAssertEqual(dated.map(\.category), [.mood("hopeful"), .mood("reflective")])
+        XCTAssertEqual(dated.map(\.fraction), [0.75, 0.25])
+
+        let allTime = FinishedMoodShare.distribution(books: books, interval: nil)
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: allTime.map { ($0.category, $0.fraction) }),
+                       [.mood("hopeful"): 0.375, .mood("reflective"): 0.125,
+                        .unclassified: 0.25, .mood("tense"): 0.25])
+        XCTAssertTrue(FinishedMoodShare.distribution(books: [], interval: nil).isEmpty)
+    }
+
+    func testFinishedMoodSharesKeepFiveCategoriesAndGroupTheRemainingShare() throws {
+        let moods: [[String]?] = [nil, ["Adventurous"], ["Dark"], ["Funny"], ["Hopeful"], ["Reflective", "Tense"]]
+        let books = moods.enumerated().map { index, tags in
+            Book(id: "\(index)", title: "Book \(index)", author: "Author", format: .epub, fileName: "\(index).epub",
+                 hardcoverMoods: tags, size: 0, addedAt: .now, progression: 1, readingStatus: .finished)
+        }
+        let shares = FinishedMoodShare.distribution(books: books, interval: nil)
+        XCTAssertEqual(shares.count, 6)
+        XCTAssertEqual(shares.last?.category, .others)
+        XCTAssertEqual(try XCTUnwrap(shares.last?.fraction), 1.0 / 6, accuracy: 0.0001)
+        XCTAssertEqual(shares.reduce(0) { $0 + $1.fraction }, 1, accuracy: 0.0001)
+        XCTAssertTrue(shares.contains { $0.category == .unclassified })
+        let fiveOnly = FinishedMoodShare.distribution(books: Array(books.dropLast()), interval: nil)
+        XCTAssertEqual(fiveOnly.count, 5)
+        XCTAssertFalse(fiveOnly.contains { $0.category == .others })
+    }
+
     func testReadingTotalsUseFinishDatesAndClipRecordedProgressToSelectedPeriod() async throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 7 * 3_600))

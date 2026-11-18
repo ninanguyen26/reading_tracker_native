@@ -56,6 +56,10 @@ struct LibraryStatsView: View {
                     statsSection("Finished Books by Genre") {
                         FinishedGenresChart(books: books, interval: interval)
                     }
+
+                    statsSection("Finished Books by Mood") {
+                        FinishedMoodsChart(books: books, interval: interval)
+                    }
                 }
             }
             .padding(20)
