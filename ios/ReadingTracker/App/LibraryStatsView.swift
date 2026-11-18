@@ -12,6 +12,7 @@ struct LibraryStatsView: View {
     var body: some View {
         let counts = Dictionary(grouping: books, by: \.readingStatus).mapValues(\.count)
         let ratedBooks = ratedBooksInPeriod
+        let interval = period.component.flatMap { calendar.dateInterval(of: $0, for: date) }
         ScrollView {
             VStack(spacing: 28) {
                 statsSection("Your Library") {
@@ -21,6 +22,9 @@ struct LibraryStatsView: View {
                 VStack(spacing: 16) {
                     StatsPeriodNavigator(period: $period, date: $date)
                         .accessibilityElement(children: .contain)
+
+                    ReadingTotalsCards(interval: interval, database: database)
+                        .id(interval)
 
                     if period == .monthly, let month = calendar.dateInterval(of: .month, for: date) {
                         statsSection("Reading Calendar") {
@@ -121,6 +125,68 @@ struct LibraryStatsView: View {
                 }
             }
         }
+    }
+}
+
+private struct ReadingTotalsCards: View {
+    let interval: DateInterval?
+    let database: AppDatabase
+
+    @State private var totals: ReadingTotals?
+
+    var body: some View {
+        let columns = Array(repeating: GridItem(.flexible(minimum: 0), spacing: 8), count: 2)
+        LazyVGrid(columns: columns, spacing: 8) {
+            card("Books Read", value: totals.map { $0.booksRead.formatted() })
+            card("Pages Read", value: pageCountLabel, accessibilityTitle: "Estimated pages read")
+            card("Reading Time", value: totals.map { readingDurationLabel($0.readingSeconds) })
+            card("Avg. Time to Finish", value: averageFinishLabel, accessibilityTitle: "Average time to finish a book")
+        }
+        .task {
+            do {
+                for try await totals in database.observeReadingTotals(in: interval) {
+                    self.totals = totals
+                }
+            } catch {
+                if !Task.isCancelled { totals = nil }
+            }
+        }
+    }
+
+    private var pageCountLabel: String? {
+        guard let totals else { return nil }
+        if totals.readingSeconds == 0 { return "0" }
+        guard let pages = totals.pagesRead else { return nil }
+        let count = pages.formatted(.number.precision(.fractionLength(0)))
+        return pages > 0 ? "≈\(count)" : count
+    }
+
+    private var averageFinishLabel: String? {
+        guard let seconds = totals?.averageFinishSeconds else { return nil }
+        if seconds < 86_400 { return readingDurationLabel(seconds) }
+        return Duration.seconds(seconds.rounded()).formatted(
+            .units(allowed: [.days, .hours], width: .abbreviated, maximumUnitCount: 2)
+        )
+    }
+
+    private func card(_ title: String, value: String?, accessibilityTitle: String? = nil) -> some View {
+        VStack(spacing: 5) {
+            Text(value ?? "—")
+                .font(.callout.monospacedDigit().weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(title)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(AppPalette.secondaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(10)
+        .modifier(BookCardSurface())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityTitle ?? title)
+        .accessibilityValue(value ?? "Unavailable")
     }
 }
 

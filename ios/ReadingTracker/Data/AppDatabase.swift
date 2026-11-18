@@ -1,6 +1,13 @@
 import Foundation
 import GRDB
 
+struct ReadingTotals: Decodable, FetchableRecord, Sendable {
+    let booksRead: Int
+    let pagesRead: Double?
+    let readingSeconds: TimeInterval
+    let averageFinishSeconds: TimeInterval?
+}
+
 struct ReadingActivity: Decodable, FetchableRecord, Sendable {
     let totalSeconds: Double
     let sessions: Int
@@ -372,6 +379,35 @@ final class AppDatabase: Sendable {
                        COALESCE(SUM(progressAdvanced), 0) AS progressAdvanced
                 FROM intervals
                 """, arguments: [id])[0]
+        }
+        .values(in: writer)
+    }
+
+    func observeReadingTotals(in interval: DateInterval?) -> AsyncValueObservation<ReadingTotals> {
+        ValueObservation.tracking { db in
+            try ReadingTotals.fetchAll(db, sql: """
+                WITH period AS (SELECT ? AS startSeconds, ? AS endSeconds, ? AS startDate, ? AS endDate),
+                reading AS (
+                    SELECT min(endedAt, coalesce(endSeconds, endedAt))
+                           - max(startedAt, coalesce(startSeconds, startedAt)) AS seconds,
+                           endedAt - startedAt AS intervalSeconds, progressAdvanced, pageCount
+                    FROM readingInterval JOIN book ON book.id = readingInterval.bookId CROSS JOIN period
+                    WHERE endedAt > startedAt AND (startSeconds IS NULL OR (startedAt < endSeconds AND endedAt > startSeconds))
+                ), completed AS (
+                    SELECT COUNT(*) AS booksRead,
+                           AVG(CASE WHEN startedReadingAt <= finishedReadingAt
+                               THEN round((julianday(finishedReadingAt) - julianday(startedReadingAt)) * 86400)
+                           END) AS averageFinishSeconds
+                    FROM book CROSS JOIN period WHERE readingStatus = ?
+                        AND (startDate IS NULL OR (finishedReadingAt >= startDate AND finishedReadingAt < endDate))
+                )
+                SELECT (SELECT booksRead FROM completed) AS booksRead,
+                       SUM(CASE WHEN pageCount > 0 THEN pageCount * progressAdvanced * seconds / intervalSeconds END) AS pagesRead,
+                       coalesce(SUM(seconds), 0) AS readingSeconds,
+                       (SELECT averageFinishSeconds FROM completed) AS averageFinishSeconds
+                FROM reading
+                """, arguments: [interval?.start.timeIntervalSince1970, interval?.end.timeIntervalSince1970,
+                                  interval?.start, interval?.end, ReadingStatus.finished])[0]
         }
         .values(in: writer)
     }

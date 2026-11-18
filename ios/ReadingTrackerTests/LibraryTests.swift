@@ -559,6 +559,45 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(total, 135)
     }
 
+    func testReadingTotalsUseFinishDatesAndClipRecordedProgressToSelectedPeriod() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 7 * 3_600))
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 2, day: 1)))
+        let month = try XCTUnwrap(calendar.dateInterval(of: .month, for: start))
+        let year = try XCTUnwrap(calendar.dateInterval(of: .year, for: start))
+
+        let first = Book(id: "dated", title: "Dated book", author: "Author", format: .pdf, fileName: "dated.pdf",
+                         pageCount: 100, size: 0, addedAt: start, progression: 1, readingStatus: .finished,
+                         startedReadingAt: start.addingTimeInterval(-86_400), finishedReadingAt: start)
+        let second = Book(id: "legacy", title: "Older book", author: "Author", format: .epub, fileName: "legacy.epub",
+                          size: 0, addedAt: start, progression: 1, readingStatus: .finished)
+        let third = Book(id: "next-month", title: "Another book", author: "Author", format: .epub, fileName: "other.epub",
+                         size: 0, addedAt: start, progression: 1, readingStatus: .finished,
+                         startedReadingAt: month.end.addingTimeInterval(-259_200), finishedReadingAt: month.end)
+        try await database.insert(first)
+        try await database.insert(second)
+        try await database.insert(third)
+        try await database.recordReading(id: first.id, from: start.addingTimeInterval(-30), to: start.addingTimeInterval(30),
+                                         progressAdvanced: 0.2)
+        try await database.recordReading(id: second.id, from: start.addingTimeInterval(30), to: start.addingTimeInterval(50),
+                                         progressAdvanced: 0.3)
+        try await database.recordReading(id: first.id, from: month.end, to: month.end.addingTimeInterval(10),
+                                         progressAdvanced: 0.1)
+
+        let expected: [(DateInterval?, Int, Double, Double, Double)] = [
+            (month, 1, 10, 50, 86_400), (year, 2, 30, 90, 172_800), (nil, 3, 30, 90, 172_800)
+        ]
+        for (period, books, pages, seconds, averageFinish) in expected {
+            var updates = database.observeReadingTotals(in: period).makeAsyncIterator()
+            let result = try await updates.next()
+            let totals = try XCTUnwrap(result)
+            XCTAssertEqual(totals.booksRead, books)
+            XCTAssertEqual(try XCTUnwrap(totals.pagesRead), pages, accuracy: 0.001)
+            XCTAssertEqual(totals.readingSeconds, seconds, accuracy: 0.001)
+            XCTAssertEqual(try XCTUnwrap(totals.averageFinishSeconds), averageFinish, accuracy: 0.001)
+        }
+    }
+
     func testDailyReadingStatsSumReadingTimeAcrossLocalMidnightAndMonthBoundaries() async throws {
         let first = try await importer.importBook(from: fixture("sample", "pdf"))
         let second = try await importer.importBook(from: fixture("sample", "epub"))
